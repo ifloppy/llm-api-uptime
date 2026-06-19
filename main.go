@@ -1,8 +1,6 @@
 package main
 
 import (
-	"flag"
-	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -18,9 +16,6 @@ import (
 )
 
 func main() {
-	mode := flag.String("mode", "tui", "Run mode: tui or web")
-	flag.Parse()
-
 	godotenv.Load()
 
 	cfg := config.Load()
@@ -50,31 +45,27 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
+	var webServer *web.Server
+	if cfg.WebEnabled {
+		webServer = web.NewServer(db, engine, cfg, logger)
+		if err := webServer.Start(); err != nil {
+			logger.Error("failed to start web server", "error", err)
+		}
+	}
+
 	go func() {
 		<-sigCh
 		logger.Info("shutting down...")
+		if webServer != nil && webServer.IsRunning() {
+			webServer.Stop()
+		}
 		engine.Stop()
 		os.Exit(0)
 	}()
 
-	switch *mode {
-	case "tui":
-		app := tui.NewApp(db, engine, cfg, logger)
-		if err := app.Run(); err != nil {
-			logger.Error("tui error", "error", err)
-			os.Exit(1)
-		}
-	case "web":
-		cfg.WebEnabled = true
-		srv := web.NewServer(db, engine, cfg, logger)
-		logger.Info("starting web server", "addr", cfg.WebAddr())
-		if err := srv.Start(); err != nil {
-			logger.Error("web server error", "error", err)
-			os.Exit(1)
-		}
-	default:
-		fmt.Fprintf(os.Stderr, "Unknown mode: %s\n", *mode)
-		fmt.Fprintf(os.Stderr, "Usage: llm-api-uptime -mode=tui|web\n")
+	app := tui.NewApp(db, engine, cfg, logger, webServer)
+	if err := app.Run(); err != nil {
+		logger.Error("tui error", "error", err)
 		os.Exit(1)
 	}
 }

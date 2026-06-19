@@ -11,6 +11,7 @@ import (
 	"llm-api-uptime/internal/probe"
 	"llm-api-uptime/internal/store"
 	"llm-api-uptime/internal/tui/pages"
+	"llm-api-uptime/internal/web"
 )
 
 type page int
@@ -36,6 +37,7 @@ type App struct {
 	engine      *probe.Engine
 	config      *config.Config
 	logger      *slog.Logger
+	webServer   *web.Server
 	currentPage page
 	pages       map[page]Page
 	width       int
@@ -43,16 +45,17 @@ type App struct {
 	quitting    bool
 }
 
-func NewApp(store *store.Store, engine *probe.Engine, config *config.Config, logger *slog.Logger) *App {
+func NewApp(store *store.Store, engine *probe.Engine, config *config.Config, logger *slog.Logger, webServer *web.Server) *App {
 	app := &App{
-		store:  store,
-		engine: engine,
-		config: config,
-		logger: logger,
-		pages:  make(map[page]Page),
+		store:     store,
+		engine:    engine,
+		config:    config,
+		logger:    logger,
+		webServer: webServer,
+		pages:     make(map[page]Page),
 	}
 
-	app.pages[pageHome] = pages.NewHome(store, engine, config)
+	app.pages[pageHome] = pages.NewHome(store, engine, config, webServer)
 	app.pages[pageProviders] = pages.NewProviders(store)
 	app.pages[pageModels] = pages.NewModels(store)
 	app.pages[pageStats] = pages.NewStats(store)

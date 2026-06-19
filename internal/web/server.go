@@ -1,11 +1,14 @@
 package web
 
 import (
+	"context"
 	"embed"
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
+	"sync"
 
 	"llm-api-uptime/internal/config"
 	"llm-api-uptime/internal/probe"
@@ -16,10 +19,14 @@ import (
 var staticFiles embed.FS
 
 type Server struct {
-	store  *store.Store
-	engine *probe.Engine
-	config *config.Config
-	logger *slog.Logger
+	store    *store.Store
+	engine   *probe.Engine
+	config   *config.Config
+	logger   *slog.Logger
+	listener net.Listener
+	server   *http.Server
+	running  bool
+	mu       sync.Mutex
 }
 
 func NewServer(store *store.Store, engine *probe.Engine, config *config.Config, logger *slog.Logger) *Server {
@@ -32,6 +39,14 @@ func NewServer(store *store.Store, engine *probe.Engine, config *config.Config, 
 }
 
 func (s *Server) Start() error {
+	s.mu.Lock()
+	if s.running {
+		s.mu.Unlock()
+		return fmt.Errorf("server already running")
+	}
+	s.running = true
+	s.mu.Unlock()
+
 	mux := http.NewServeMux()
 
 	handler := NewHandler(s.store, s.engine, s.config, s.logger)
@@ -39,6 +54,9 @@ func (s *Server) Start() error {
 
 	staticFS, err := fs.Sub(staticFiles, "static")
 	if err != nil {
+		s.mu.Lock()
+		s.running = false
+		s.mu.Unlock()
 		return fmt.Errorf("create static fs: %w", err)
 	}
 
@@ -62,7 +80,16 @@ func (s *Server) Start() error {
 	wrappedMux := authMiddleware(mux)
 
 	addr := s.config.WebAddr()
-	s.logger.Info("web server starting", "addr", addr, "public", s.config.WebPublic)
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		s.mu.Lock()
+		s.running = false
+		s.mu.Unlock()
+		return fmt.Errorf("listen %s: %w", addr, err)
+	}
+	s.listener = listener
+
+	s.logger.Info("web server started", "addr", addr, "public", s.config.WebPublic)
 
 	if s.config.WebPassword != "" {
 		s.logger.Info("authentication enabled")
@@ -70,5 +97,39 @@ func (s *Server) Start() error {
 		s.logger.Warn("authentication disabled - not recommended for public access")
 	}
 
-	return http.ListenAndServe(addr, wrappedMux)
+	s.server = &http.Server{Handler: wrappedMux}
+
+	go func() {
+		if err := s.server.Serve(listener); err != nil && err != http.ErrServerClosed {
+			s.logger.Error("web server error", "error", err)
+		}
+	}()
+
+	return nil
+}
+
+func (s *Server) Stop() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.running {
+		return
+	}
+
+	if s.server != nil {
+		s.server.Shutdown(context.Background())
+	}
+
+	s.running = false
+	s.logger.Info("web server stopped")
+}
+
+func (s *Server) IsRunning() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.running
+}
+
+func (s *Server) Addr() string {
+	return s.config.WebAddr()
 }
