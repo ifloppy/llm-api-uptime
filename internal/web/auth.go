@@ -18,7 +18,7 @@ func AuthMiddleware(password string) func(http.Handler) http.Handler {
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/api/login" {
+			if r.URL.Path == "/api/login" || r.URL.Path == "/login.html" {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -76,5 +76,5 @@ func isStaticFile(path string) bool {
 			return true
 		}
 	}
-	return strings.HasPrefix(path, "/login.html")
+	return false
 }
