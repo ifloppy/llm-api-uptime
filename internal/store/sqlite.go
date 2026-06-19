@@ -84,16 +84,17 @@ func (s *Store) migrate() error {
 		}
 	}
 
-	s.migrateAlterColumn("prompt_tokens", "INTEGER DEFAULT 0")
-	s.migrateAlterColumn("completion_tokens", "INTEGER DEFAULT 0")
-	s.migrateAlterColumn("total_tokens", "INTEGER DEFAULT 0")
-	s.migrateAlterColumn("tps", "REAL DEFAULT 0")
+	s.migrateAlterColumn("providers", "max_tokens", "INTEGER DEFAULT 2")
+	s.migrateAlterColumn("results", "prompt_tokens", "INTEGER DEFAULT 0")
+	s.migrateAlterColumn("results", "completion_tokens", "INTEGER DEFAULT 0")
+	s.migrateAlterColumn("results", "total_tokens", "INTEGER DEFAULT 0")
+	s.migrateAlterColumn("results", "tps", "REAL DEFAULT 0")
 
 	return nil
 }
 
-func (s *Store) migrateAlterColumn(column, columnDef string) {
-	query := fmt.Sprintf("ALTER TABLE results ADD COLUMN %s %s", column, columnDef)
+func (s *Store) migrateAlterColumn(table, column, columnDef string) {
+	query := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, columnDef)
 	s.db.Exec(query)
 }
 
