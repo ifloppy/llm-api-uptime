@@ -43,11 +43,18 @@ func (s *Server) Start() error {
 	}
 
 	fileServer := http.FileServer(http.FS(staticFS))
+
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
 			http.ServeFileFS(w, r, staticFS, "index.html")
 			return
 		}
+
+		if r.URL.Path == "/login.html" {
+			http.ServeFileFS(w, r, staticFS, "login.html")
+			return
+		}
+
 		fileServer.ServeHTTP(w, r)
 	})
 

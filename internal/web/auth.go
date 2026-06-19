@@ -23,7 +23,7 @@ func AuthMiddleware(password string) func(http.Handler) http.Handler {
 				return
 			}
 
-			if strings.HasPrefix(r.URL.Path, "/static/") || r.URL.Path == "/" || r.URL.Path == "/index.html" {
+			if isStaticFile(r.URL.Path) || r.URL.Path == "/" || r.URL.Path == "/index.html" {
 				token := r.URL.Query().Get("token")
 				if token != "" {
 					hash := sha256.Sum256([]byte(token))
@@ -67,4 +67,14 @@ func AuthMiddleware(password string) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+func isStaticFile(path string) bool {
+	staticExts := []string{".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".woff2", ".ttf"}
+	for _, ext := range staticExts {
+		if strings.HasSuffix(path, ext) {
+			return true
+		}
+	}
+	return strings.HasPrefix(path, "/login.html")
 }
