@@ -406,6 +406,20 @@ async function loadStats() {
 
 document.getElementById('timeRange').addEventListener('change', loadStats);
 
+async function clearStats() {
+    if (!confirm('Are you sure you want to clear all statistics? This action cannot be undone.')) {
+        return;
+    }
+    
+    try {
+        await apiCall('/stats', 'DELETE');
+        loadStats();
+        showToast('Statistics cleared', 'success');
+    } catch (error) {
+        showToast('Failed to clear statistics', 'error');
+    }
+}
+
 async function exportCSV() {
     const hours = document.getElementById('timeRange').value;
     window.location.href = `${API_BASE}/export/csv?hours=${hours}`;

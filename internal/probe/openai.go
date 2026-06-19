@@ -52,7 +52,7 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 		Messages: []openAIMessage{
 			{Role: "user", Content: "Hi"},
 		},
-		MaxTokens: 1,
+		MaxTokens: 10,
 		Stream:    false,
 	}
 

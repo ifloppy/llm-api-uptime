@@ -12,6 +12,7 @@ import (
 	"llm-api-uptime/internal/model"
 	"llm-api-uptime/internal/stats"
 	"llm-api-uptime/internal/store"
+	"llm-api-uptime/internal/tui/components"
 )
 
 type Stats struct {
@@ -21,6 +22,8 @@ type Stats struct {
 	width      int
 	height     int
 	timeRange  int
+	mode       string
+	confirm    *components.Confirm
 	message    string
 	messageTyp string
 }
@@ -29,6 +32,7 @@ func NewStats(store *store.Store) *Stats {
 	s := &Stats{
 		store:     store,
 		timeRange: 24,
+		mode:      "normal",
 	}
 	s.loadData()
 	return s
@@ -60,6 +64,13 @@ func (s *Stats) Init() tea.Cmd {
 }
 
 func (s *Stats) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if s.mode == "confirm" {
+		return s.updateConfirm(msg)
+	}
+	return s.updateNormal(msg)
+}
+
+func (s *Stats) updateNormal(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -92,9 +103,37 @@ func (s *Stats) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "e":
 			s.exportCSV()
+		case "c":
+			s.confirm = components.NewConfirm("Clear all statistics? This cannot be undone.")
+			s.mode = "confirm"
+			return s, nil
 		}
 	}
 	return s, nil
+}
+
+func (s *Stats) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
+	cm, cmd := s.confirm.Update(msg)
+
+	switch msg := msg.(type) {
+	case components.ConfirmMsg:
+		if msg.Confirmed {
+			if err := s.store.ClearResults(); err != nil {
+				s.message = "Error: " + err.Error()
+				s.messageTyp = "error"
+			} else {
+				s.loadData()
+				s.message = "Statistics cleared"
+				s.messageTyp = "success"
+			}
+		}
+		s.mode = "normal"
+		s.confirm = nil
+		return s, nil
+	}
+
+	s.confirm = cm.(*components.Confirm)
+	return s, cmd
 }
 
 func (s *Stats) exportCSV() {
@@ -119,6 +158,10 @@ func (s *Stats) exportCSV() {
 }
 
 func (s *Stats) View() string {
+	if s.mode == "confirm" {
+		return s.confirm.View()
+	}
+
 	title := TitleStyle.Width(s.width).Render("Statistics")
 
 	timeRangeLabel := "24 Hours"
@@ -140,7 +183,7 @@ func (s *Stats) View() string {
 			content = msgStyle.Render(s.message)
 			s.message = ""
 		}
-		help := HelpStyle.Render("h: 24h • w: 7d • m: 30d • e: export CSV")
+		help := HelpStyle.Render("h: 24h • w: 7d • m: 30d • e: export CSV • c: clear stats")
 		return lipgloss.JoinVertical(lipgloss.Left, title, timeRangeInfo, content, help)
 	}
 
@@ -209,7 +252,7 @@ func (s *Stats) View() string {
 		s.message = ""
 	}
 
-	rows = append(rows, HelpStyle.Render("↑/↓: navigate • h: 24h • w: 7d • m: 30d • e: export CSV"))
+	rows = append(rows, HelpStyle.Render("↑/↓: navigate • h: 24h • w: 7d • m: 30d • e: export CSV • c: clear stats"))
 
 	return lipgloss.JoinVertical(lipgloss.Left, title, timeRangeInfo, lipgloss.JoinVertical(lipgloss.Left, rows...))
 }
@@ -220,5 +263,5 @@ func (s *Stats) SetSize(width, height int) {
 }
 
 func (s *Stats) IsFormMode() bool {
-	return false
+	return s.mode == "confirm"
 }

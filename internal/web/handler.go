@@ -40,6 +40,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/probes", h.handleCreateProbe)
 	mux.HandleFunc("DELETE /api/probes/{id}", h.handleDeleteProbe)
 	mux.HandleFunc("GET /api/stats", h.handleStats)
+	mux.HandleFunc("DELETE /api/stats", h.handleClearStats)
 	mux.HandleFunc("GET /api/export/csv", h.handleExportCSV)
 	mux.HandleFunc("POST /api/probe/trigger", h.handleTriggerProbe)
 	mux.HandleFunc("POST /api/login", h.handleLogin)
@@ -302,6 +303,15 @@ func (h *Handler) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handleTriggerProbe(w http.ResponseWriter, r *http.Request) {
 	h.engine.TriggerOnce()
 	writeJSON(w, http.StatusOK, map[string]string{"status": "triggered"})
+}
+
+func (h *Handler) handleClearStats(w http.ResponseWriter, r *http.Request) {
+	h.logger.Info("clearing all statistics")
+	if err := h.store.ClearResults(); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "cleared"})
 }
 
 func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {

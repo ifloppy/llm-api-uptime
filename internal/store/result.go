@@ -25,6 +25,17 @@ func (s *Store) SaveResult(r *model.Result) error {
 	return nil
 }
 
+func (s *Store) ClearResults() error {
+	_, err := s.db.Exec("DELETE FROM results")
+	return err
+}
+
+func (s *Store) GetResultCount() (int, error) {
+	var count int
+	err := s.db.QueryRow("SELECT COUNT(*) FROM results").Scan(&count)
+	return count, err
+}
+
 func (s *Store) GetStats(query model.StatsQuery) ([]model.ProviderStats, error) {
 	var since time.Time
 	if query.Days > 0 {
