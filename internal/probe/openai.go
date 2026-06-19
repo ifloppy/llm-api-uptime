@@ -29,7 +29,8 @@ type openAIResponse struct {
 	ID      string `json:"id"`
 	Choices []struct {
 		Message struct {
-			Content string `json:"content"`
+			Content           string `json:"content"`
+			ReasoningContent  string `json:"reasoning_content"`
 		} `json:"message"`
 	} `json:"choices,omitempty"`
 	Usage struct {
@@ -52,7 +53,7 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 		Messages: []openAIMessage{
 			{Role: "user", Content: "Hi"},
 		},
-		MaxTokens: 10,
+		MaxTokens: 2,
 		Stream:    false,
 	}
 
@@ -166,7 +167,8 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 	}
 
 	content := strings.TrimSpace(openAIResp.Choices[0].Message.Content)
-	if content == "" {
+	reasoning := strings.TrimSpace(openAIResp.Choices[0].Message.ReasoningContent)
+	if content == "" && reasoning == "" {
 		return &model.Result{
 			Status:       model.StatusEmptyContent,
 			StatusCode:   resp.StatusCode,

@@ -45,7 +45,7 @@ func probeAnthropic(ctx context.Context, baseURL, apiKey, providerName, modelID 
 
 	reqBody := anthropicRequest{
 		Model:     modelID,
-		MaxTokens: 10,
+		MaxTokens: 2,
 		Messages: []anthropicMessage{
 			{Role: "user", Content: "Hi"},
 		},
