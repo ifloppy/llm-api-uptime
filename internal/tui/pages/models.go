@@ -136,6 +136,12 @@ func (m *Models) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Models) showAddForm() {
+	// Reload providers to get latest changes
+	providers, err := m.store.ListProviders()
+	if err == nil {
+		m.providers = providers
+	}
+
 	if len(m.providers) == 0 {
 		m.message = "No providers configured. Add a provider first."
 		m.messageTyp = "error"
@@ -155,6 +161,12 @@ func (m *Models) showAddForm() {
 }
 
 func (m *Models) showFetchForm() {
+	// Reload providers to get latest changes
+	providers, err := m.store.ListProviders()
+	if err == nil {
+		m.providers = providers
+	}
+
 	if len(m.providers) == 0 {
 		m.message = "No providers configured. Add a provider first."
 		m.messageTyp = "error"
