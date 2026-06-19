@@ -1,0 +1,149 @@
+package probe
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+
+	"llm-api-uptime/internal/model"
+)
+
+type openAIRequest struct {
+	Model    string           `json:"model"`
+	Messages []openAIMessage  `json:"messages"`
+	MaxTokens int             `json:"max_tokens"`
+	Stream   bool             `json:"stream"`
+}
+
+type openAIMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type openAIResponse struct {
+	ID      string `json:"id"`
+	Error   *struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+		Type    string `json:"type"`
+	} `json:"error,omitempty"`
+}
+
+func probeOpenAI(ctx context.Context, baseURL, providerName, modelID string) *model.Result {
+	start := time.Now()
+
+	reqBody := openAIRequest{
+		Model: modelID,
+		Messages: []openAIMessage{
+			{Role: "user", Content: "Hi"},
+		},
+		MaxTokens: 1,
+		Stream:    false,
+	}
+
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return &model.Result{
+			Status:       model.StatusError,
+			ErrorMessage: fmt.Sprintf("marshal request: %v", err),
+		}
+	}
+
+	url := strings.TrimRight(baseURL, "/") + "/v1/chat/completions"
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return &model.Result{
+			Status:       model.StatusError,
+			ErrorMessage: fmt.Sprintf("create request: %v", err),
+		}
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 0}
+	resp, err := client.Do(req)
+	latency := int(time.Since(start).Milliseconds())
+
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return &model.Result{
+				Status:    model.StatusTimeout,
+				LatencyMs: latency,
+			}
+		}
+		return &model.Result{
+			Status:       model.StatusError,
+			LatencyMs:    latency,
+			ErrorMessage: err.Error(),
+		}
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return &model.Result{
+			Status:       model.StatusError,
+			StatusCode:   resp.StatusCode,
+			LatencyMs:    latency,
+			ErrorMessage: fmt.Sprintf("read response: %v", err),
+		}
+	}
+
+	if len(respBody) == 0 {
+		return &model.Result{
+			Status:     model.StatusEmptyResp,
+			StatusCode: resp.StatusCode,
+			LatencyMs:  latency,
+		}
+	}
+
+	var openAIResp openAIResponse
+	if err := json.Unmarshal(respBody, &openAIResp); err != nil {
+		return &model.Result{
+			Status:       model.StatusError,
+			StatusCode:   resp.StatusCode,
+			LatencyMs:    latency,
+			ErrorMessage: fmt.Sprintf("parse response: %v", err),
+			RawError:     string(respBody),
+		}
+	}
+
+	requestID := openAIResp.ID
+	if rid := resp.Header.Get("x-request-id"); rid != "" {
+		requestID = rid
+	}
+
+	if openAIResp.Error != nil {
+		return &model.Result{
+			Status:       model.StatusError,
+			StatusCode:   resp.StatusCode,
+			LatencyMs:    latency,
+			ErrorCode:    openAIResp.Error.Code,
+			ErrorMessage: openAIResp.Error.Message,
+			RequestID:    requestID,
+			RawError:     string(respBody),
+		}
+	}
+
+	if resp.StatusCode >= 400 {
+		return &model.Result{
+			Status:     model.StatusError,
+			StatusCode: resp.StatusCode,
+			LatencyMs:  latency,
+			RequestID:  requestID,
+			RawError:   string(respBody),
+		}
+	}
+
+	return &model.Result{
+		Status:     model.StatusSuccess,
+		StatusCode: resp.StatusCode,
+		LatencyMs:  latency,
+		RequestID:  requestID,
+	}
+}

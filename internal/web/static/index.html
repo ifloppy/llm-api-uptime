@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM API Uptime Monitor</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div id="app">
+        <nav class="sidebar">
+            <div class="logo">
+                <h2>LLM Uptime</h2>
+            </div>
+            <ul class="nav-items">
+                <li class="nav-item active" data-page="dashboard">
+                    <span class="icon">📊</span>
+                    <span class="label">Dashboard</span>
+                </li>
+                <li class="nav-item" data-page="providers">
+                    <span class="icon">🏢</span>
+                    <span class="label">Providers</span>
+                </li>
+                <li class="nav-item" data-page="models">
+                    <span class="icon">🤖</span>
+                    <span class="label">Models</span>
+                </li>
+                <li class="nav-item" data-page="stats">
+                    <span class="icon">📈</span>
+                    <span class="label">Statistics</span>
+                </li>
+            </ul>
+            <div class="sidebar-footer">
+                <button id="triggerBtn" class="btn btn-primary">Trigger Probe</button>
+            </div>
+        </nav>
+
+        <main class="content">
+            <div id="dashboard" class="page active">
+                <div class="page-header">
+                    <h1>Dashboard</h1>
+                    <div class="status-badge" id="engineStatus">Loading...</div>
+                </div>
+                <div class="stats-grid" id="statsGrid"></div>
+                <div class="card">
+                    <h3>Recent Activity</h3>
+                    <div id="recentActivity"></div>
+                </div>
+            </div>
+
+            <div id="providers" class="page">
+                <div class="page-header">
+                    <h1>Providers</h1>
+                    <button class="btn btn-primary" onclick="showAddProvider()">Add Provider</button>
+                </div>
+                <div class="card">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Base URL</th>
+                                <th>Type</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="providersTable"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="models" class="page">
+                <div class="page-header">
+                    <h1>Models</h1>
+                    <button class="btn btn-primary" onclick="showAddModel()">Add Model</button>
+                </div>
+                <div class="card">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Provider</th>
+                                <th>Model</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="modelsTable"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="stats" class="page">
+                <div class="page-header">
+                    <h1>Statistics</h1>
+                    <div class="controls">
+                        <select id="timeRange">
+                            <option value="24">Last 24 Hours</option>
+                            <option value="168">Last 7 Days</option>
+                            <option value="720">Last 30 Days</option>
+                        </select>
+                        <button class="btn btn-secondary" onclick="exportCSV()">Export CSV</button>
+                    </div>
+                </div>
+                <div class="card">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Provider</th>
+                                <th>Model</th>
+                                <th>Total Probes</th>
+                                <th>Success Rate</th>
+                                <th>Avg Latency</th>
+                            </tr>
+                        </thead>
+                        <tbody id="statsTable"></tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div id="modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle"></h3>
+                <button class="btn-close" onclick="hideModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="modalBody"></div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
