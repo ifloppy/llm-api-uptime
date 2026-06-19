@@ -28,6 +28,7 @@ type Page interface {
 	Update(msg tea.Msg) (tea.Model, tea.Cmd)
 	View() string
 	SetSize(width, height int)
+	IsFormMode() bool
 }
 
 type App struct {
@@ -81,25 +82,36 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c":
-			a.quitting = true
-			return a, tea.Quit
-		case "1":
-			a.currentPage = pageHome
-			return a, nil
-		case "2":
-			a.currentPage = pageProviders
-			return a, nil
-		case "3":
-			a.currentPage = pageModels
-			return a, nil
-		case "4":
-			a.currentPage = pageStats
-			return a, nil
-		case "5":
-			a.currentPage = pageSettings
-			return a, nil
+		// Only handle page navigation when not in form mode
+		currentPage := a.pages[a.currentPage]
+		if !currentPage.IsFormMode() {
+			switch msg.String() {
+			case "ctrl+c":
+				a.quitting = true
+				return a, tea.Quit
+			case "1":
+				a.currentPage = pageHome
+				return a, nil
+			case "2":
+				a.currentPage = pageProviders
+				return a, nil
+			case "3":
+				a.currentPage = pageModels
+				return a, nil
+			case "4":
+				a.currentPage = pageStats
+				return a, nil
+			case "5":
+				a.currentPage = pageSettings
+				return a, nil
+			}
+		} else {
+			// In form mode, only handle ctrl+c
+			switch msg.String() {
+			case "ctrl+c":
+				a.quitting = true
+				return a, tea.Quit
+			}
 		}
 	}
 

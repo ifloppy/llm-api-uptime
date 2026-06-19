@@ -247,6 +247,7 @@ func (p *Providers) View() string {
 	rows := []string{
 		TableHeaderStyle.Width(p.width).Render(
 			lipgloss.JoinHorizontal(lipgloss.Left,
+				TableCellStyle.Width(2).Render(""),
 				TableCellStyle.Width(4).Render("#"),
 				TableCellStyle.Width(20).Render("Name"),
 				TableCellStyle.Width(30).Render("Base URL"),
@@ -262,13 +263,16 @@ func (p *Providers) View() string {
 			enabled = SuccessStyle.Render("Yes")
 		}
 
+		prefix := "  "
 		style := TableCellStyle
 		if i == p.cursor {
+			prefix = SuccessStyle.Render("▸ ")
 			style = MenuActiveStyle
 		}
 
 		row := style.Width(p.width).Render(
 			lipgloss.JoinHorizontal(lipgloss.Left,
+				TableCellStyle.Width(2).Render(prefix),
 				TableCellStyle.Width(4).Render(fmt.Sprintf("%d", i+1)),
 				TableCellStyle.Width(20).Render(provider.Name),
 				TableCellStyle.Width(30).Render(provider.BaseURL),
@@ -296,4 +300,8 @@ func (p *Providers) View() string {
 func (p *Providers) SetSize(width, height int) {
 	p.width = width
 	p.height = height
+}
+
+func (p *Providers) IsFormMode() bool {
+	return p.mode == "form" || p.mode == "confirm"
 }

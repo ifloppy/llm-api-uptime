@@ -69,6 +69,10 @@ func (s *Settings) SetSize(width, height int) {
 	s.height = height
 }
 
+func (s *Settings) IsFormMode() bool {
+	return false
+}
+
 func maskPassword(p string) string {
 	if p == "" {
 		return "(not set)"

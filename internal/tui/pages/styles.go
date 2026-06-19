@@ -12,8 +12,7 @@ var (
 
 	MenuActiveStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(lipgloss.Color("#7C3AED")).
-			Padding(0, 1)
+			Background(lipgloss.Color("#7C3AED"))
 
 	BoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).

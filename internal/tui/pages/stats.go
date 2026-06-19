@@ -147,6 +147,7 @@ func (s *Stats) View() string {
 	rows := []string{
 		TableHeaderStyle.Width(s.width).Render(
 			lipgloss.JoinHorizontal(lipgloss.Left,
+				TableCellStyle.Width(2).Render(""),
 				TableCellStyle.Width(20).Render("Provider"),
 				TableCellStyle.Width(25).Render("Model"),
 				TableCellStyle.Width(10).Render("Probes"),
@@ -167,13 +168,16 @@ func (s *Stats) View() string {
 				rateStyle = ErrorStyle
 			}
 
+			prefix := "  "
 			style := TableCellStyle
 			if idx == s.cursor {
+				prefix = SuccessStyle.Render("▸ ")
 				style = MenuActiveStyle
 			}
 
 			row := style.Width(s.width).Render(
 				lipgloss.JoinHorizontal(lipgloss.Left,
+					TableCellStyle.Width(2).Render(prefix),
 					TableCellStyle.Width(20).Render(ms.ProviderName),
 					TableCellStyle.Width(25).Render(ms.Model),
 					TableCellStyle.Width(10).Render(fmt.Sprintf("%d", ms.TotalProbes)),
@@ -203,4 +207,8 @@ func (s *Stats) View() string {
 func (s *Stats) SetSize(width, height int) {
 	s.width = width
 	s.height = height
+}
+
+func (s *Stats) IsFormMode() bool {
+	return false
 }

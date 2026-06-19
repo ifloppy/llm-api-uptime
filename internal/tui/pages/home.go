@@ -83,3 +83,7 @@ func (h *Home) SetSize(width, height int) {
 	h.width = width
 	h.height = height
 }
+
+func (h *Home) IsFormMode() bool {
+	return false
+}
