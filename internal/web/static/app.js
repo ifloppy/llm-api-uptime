@@ -48,13 +48,22 @@ function initTriggerButton() {
 }
 
 async function apiCall(endpoint, method = 'GET', body = null) {
+    const token = localStorage.getItem('auth_token');
     const options = {
         method,
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 
+            'Content-Type': 'application/json',
+            ...(token && { 'Authorization': `Bearer ${token}` })
+        }
     };
     if (body) options.body = JSON.stringify(body);
     
     const response = await fetch(API_BASE + endpoint, options);
+    if (response.status === 401) {
+        localStorage.removeItem('auth_token');
+        window.location.href = '/login.html';
+        return;
+    }
     if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || 'Request failed');
