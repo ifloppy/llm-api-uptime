@@ -277,8 +277,16 @@ func (m *Models) View() string {
 
 	if len(m.probes) == 0 {
 		content := MutedStyle.Render("No models configured")
+		if m.message != "" {
+			msgStyle := SuccessStyle
+			if m.messageTyp == "error" {
+				msgStyle = ErrorStyle
+			}
+			content = msgStyle.Render(m.message)
+			m.message = ""
+		}
 		help := HelpStyle.Render("a: add model • f: fetch from provider")
-		return lipgloss.JoinVertical(lipgloss.Left, title, content, "\n"+help)
+		return lipgloss.JoinVertical(lipgloss.Left, title, content, help)
 	}
 
 	rows := []string{
@@ -319,12 +327,11 @@ func (m *Models) View() string {
 		if m.messageTyp == "error" {
 			msgStyle = ErrorStyle
 		}
-		rows = append(rows, "\n"+msgStyle.Render(m.message))
+		rows = append(rows, msgStyle.Render(m.message))
 		m.message = ""
 	}
 
-	help := HelpStyle.Render("↑/↓: navigate • a: add • f: fetch • d: delete")
-	rows = append(rows, "\n"+help)
+	rows = append(rows, HelpStyle.Render("↑/↓: navigate • a: add • f: fetch • d: delete"))
 
 	return lipgloss.JoinVertical(lipgloss.Left, title, lipgloss.JoinVertical(lipgloss.Left, rows...))
 }

@@ -232,8 +232,16 @@ func (p *Providers) View() string {
 
 	if len(p.providers) == 0 {
 		content := MutedStyle.Render("No providers configured")
+		if p.message != "" {
+			msgStyle := SuccessStyle
+			if p.messageTyp == "error" {
+				msgStyle = ErrorStyle
+			}
+			content = msgStyle.Render(p.message)
+			p.message = ""
+		}
 		help := HelpStyle.Render("a: add provider")
-		return lipgloss.JoinVertical(lipgloss.Left, title, content, "\n"+help)
+		return lipgloss.JoinVertical(lipgloss.Left, title, content, help)
 	}
 
 	rows := []string{
@@ -276,12 +284,11 @@ func (p *Providers) View() string {
 		if p.messageTyp == "error" {
 			msgStyle = ErrorStyle
 		}
-		rows = append(rows, "\n"+msgStyle.Render(p.message))
+		rows = append(rows, msgStyle.Render(p.message))
 		p.message = ""
 	}
 
-	help := HelpStyle.Render("↑/↓: navigate • a: add • e: edit • d: delete")
-	rows = append(rows, "\n"+help)
+	rows = append(rows, HelpStyle.Render("↑/↓: navigate • a: add • e: edit • d: delete"))
 
 	return lipgloss.JoinVertical(lipgloss.Left, title, lipgloss.JoinVertical(lipgloss.Left, rows...))
 }

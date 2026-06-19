@@ -63,17 +63,17 @@ func (s *Stats) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "1":
+		case "h":
 			s.timeRange = 24
 			s.loadData()
 			s.message = "Showing last 24 hours"
 			s.messageTyp = "success"
-		case "2":
+		case "w":
 			s.timeRange = 168
 			s.loadData()
 			s.message = "Showing last 7 days"
 			s.messageTyp = "success"
-		case "3":
+		case "m":
 			s.timeRange = 720
 			s.loadData()
 			s.message = "Showing last 30 days"
@@ -132,8 +132,16 @@ func (s *Stats) View() string {
 
 	if len(s.data) == 0 {
 		content := MutedStyle.Render("No statistics available")
-		help := HelpStyle.Render("1: 24h • 2: 7d • 3: 30d • e: export CSV")
-		return lipgloss.JoinVertical(lipgloss.Left, title, timeRangeInfo, content, "\n"+help)
+		if s.message != "" {
+			msgStyle := SuccessStyle
+			if s.messageTyp == "error" {
+				msgStyle = ErrorStyle
+			}
+			content = msgStyle.Render(s.message)
+			s.message = ""
+		}
+		help := HelpStyle.Render("h: 24h • w: 7d • m: 30d • e: export CSV")
+		return lipgloss.JoinVertical(lipgloss.Left, title, timeRangeInfo, content, help)
 	}
 
 	rows := []string{
@@ -183,12 +191,11 @@ func (s *Stats) View() string {
 		if s.messageTyp == "error" {
 			msgStyle = ErrorStyle
 		}
-		rows = append(rows, "\n"+msgStyle.Render(s.message))
+		rows = append(rows, msgStyle.Render(s.message))
 		s.message = ""
 	}
 
-	help := HelpStyle.Render("↑/↓: navigate • 1: 24h • 2: 7d • 3: 30d • e: export CSV")
-	rows = append(rows, "\n"+help)
+	rows = append(rows, HelpStyle.Render("↑/↓: navigate • h: 24h • w: 7d • m: 30d • e: export CSV"))
 
 	return lipgloss.JoinVertical(lipgloss.Left, title, timeRangeInfo, lipgloss.JoinVertical(lipgloss.Left, rows...))
 }
