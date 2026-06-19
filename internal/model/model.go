@@ -10,14 +10,15 @@ const (
 )
 
 type Provider struct {
-	ID        int64     `json:"id"`
-	Name      string    `json:"name"`
-	BaseURL   string    `json:"base_url"`
-	APIKey    string    `json:"api_key"`
-	APIType   APIType   `json:"api_type"`
-	Enabled   bool      `json:"enabled"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID         int64     `json:"id"`
+	Name       string    `json:"name"`
+	BaseURL    string    `json:"base_url"`
+	APIKey     string    `json:"api_key"`
+	APIType    APIType   `json:"api_type"`
+	MaxTokens  int       `json:"max_tokens"`
+	Enabled    bool      `json:"enabled"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 type Probe struct {
@@ -60,6 +61,7 @@ type ProbeWithProvider struct {
 	ProviderName string  `json:"provider_name"`
 	ProviderURL  string  `json:"provider_url"`
 	APIKey       string  `json:"api_key"`
+	MaxTokens    int     `json:"max_tokens"`
 	APIType      APIType `json:"api_type"`
 }
 

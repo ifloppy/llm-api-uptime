@@ -45,15 +45,19 @@ type openAIResponse struct {
 	} `json:"error,omitempty"`
 }
 
-func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID string) *model.Result {
+func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID string, maxTokens int) *model.Result {
 	start := time.Now()
+
+	if maxTokens <= 0 {
+		maxTokens = 2
+	}
 
 	reqBody := openAIRequest{
 		Model: modelID,
 		Messages: []openAIMessage{
 			{Role: "user", Content: "Hi"},
 		},
-		MaxTokens: 2,
+		MaxTokens: maxTokens,
 		Stream:    false,
 	}
 

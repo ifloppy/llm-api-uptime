@@ -45,6 +45,7 @@ func (s *Store) migrate() error {
 			base_url    TEXT NOT NULL,
 			api_key     TEXT NOT NULL,
 			api_type    TEXT NOT NULL CHECK(api_type IN ('openai', 'anthropic')),
+			max_tokens  INTEGER DEFAULT 2,
 			enabled     BOOLEAN DEFAULT 1,
 			created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP

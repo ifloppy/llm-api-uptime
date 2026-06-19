@@ -130,9 +130,9 @@ func (e *Engine) probeOne(p model.ProbeWithProvider) {
 
 	switch p.APIType {
 	case model.APITypeOpenAI:
-		result = probeOpenAI(ctx, p.ProviderURL, p.APIKey, p.ProviderName, p.Model)
+		result = probeOpenAI(ctx, p.ProviderURL, p.APIKey, p.ProviderName, p.Model, p.MaxTokens)
 	case model.APITypeAnthropic:
-		result = probeAnthropic(ctx, p.ProviderURL, p.APIKey, p.ProviderName, p.Model)
+		result = probeAnthropic(ctx, p.ProviderURL, p.APIKey, p.ProviderName, p.Model, p.MaxTokens)
 	default:
 		e.logger.Error("unknown api type", "type", p.APIType, "provider", p.ProviderName)
 		return

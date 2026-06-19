@@ -2,6 +2,7 @@ package pages
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -133,6 +134,7 @@ func (p *Providers) showAddForm() {
 		{Label: "Base URL", Placeholder: "https://api.example.com"},
 		{Label: "API Key", Placeholder: "sk-...", IsPassword: true},
 		{Label: "API Type", IsSelect: true, Options: []string{"openai", "anthropic"}},
+		{Label: "Max Tokens", Placeholder: "2"},
 	})
 	p.mode = "form"
 	p.editing = nil
@@ -145,6 +147,7 @@ func (p *Providers) showEditForm() {
 		{Label: "Base URL", Placeholder: "https://api.example.com", Value: provider.BaseURL},
 		{Label: "API Key", Placeholder: "sk-...", Value: provider.APIKey, IsPassword: true},
 		{Label: "API Type", IsSelect: true, Options: []string{"openai", "anthropic"}},
+		{Label: "Max Tokens", Placeholder: "2", Value: fmt.Sprintf("%d", provider.MaxTokens)},
 	})
 	p.mode = "form"
 	p.editing = &provider
@@ -161,6 +164,7 @@ func (p *Providers) handleFormSubmit(msg components.FormSubmitMsg) (tea.Model, t
 	baseURL := msg.Values["Base URL"]
 	apiKey := msg.Values["API Key"]
 	apiType := msg.Values["API Type"]
+	maxTokensStr := msg.Values["Max Tokens"]
 
 	if name == "" || baseURL == "" || apiKey == "" {
 		p.message = "All fields are required"
@@ -170,11 +174,19 @@ func (p *Providers) handleFormSubmit(msg components.FormSubmitMsg) (tea.Model, t
 		return p, nil
 	}
 
+	maxTokens := 2
+	if maxTokensStr != "" {
+		if n, err := strconv.Atoi(maxTokensStr); err == nil && n > 0 {
+			maxTokens = n
+		}
+	}
+
 	if p.editing != nil {
 		p.editing.Name = name
 		p.editing.BaseURL = baseURL
 		p.editing.APIKey = apiKey
 		p.editing.APIType = model.APIType(apiType)
+		p.editing.MaxTokens = maxTokens
 		if err := p.store.UpdateProvider(p.editing); err != nil {
 			p.message = "Error: " + err.Error()
 			p.messageTyp = "error"
@@ -184,11 +196,12 @@ func (p *Providers) handleFormSubmit(msg components.FormSubmitMsg) (tea.Model, t
 		}
 	} else {
 		provider := &model.Provider{
-			Name:    name,
-			BaseURL: baseURL,
-			APIKey:  apiKey,
-			APIType: model.APIType(apiType),
-			Enabled: true,
+			Name:      name,
+			BaseURL:   baseURL,
+			APIKey:    apiKey,
+			APIType:   model.APIType(apiType),
+			MaxTokens: maxTokens,
+			Enabled:   true,
 		}
 		if err := p.store.CreateProvider(provider); err != nil {
 			p.message = "Error: " + err.Error()
@@ -252,6 +265,7 @@ func (p *Providers) View() string {
 				TableCellStyle.Width(20).Render("Name"),
 				TableCellStyle.Width(30).Render("Base URL"),
 				TableCellStyle.Width(10).Render("Type"),
+				TableCellStyle.Width(10).Render("MaxTokens"),
 				TableCellStyle.Width(8).Render("Enabled"),
 			),
 		),
@@ -277,6 +291,7 @@ func (p *Providers) View() string {
 				TableCellStyle.Width(20).Render(provider.Name),
 				TableCellStyle.Width(30).Render(provider.BaseURL),
 				TableCellStyle.Width(10).Render(string(provider.APIType)),
+				TableCellStyle.Width(10).Render(fmt.Sprintf("%d", provider.MaxTokens)),
 				TableCellStyle.Width(8).Render(enabled),
 			),
 		)

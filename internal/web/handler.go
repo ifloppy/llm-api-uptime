@@ -75,22 +75,28 @@ func (h *Handler) handleListProviders(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 	var p struct {
-		Name    string `json:"name"`
-		BaseURL string `json:"base_url"`
-		APIKey  string `json:"api_key"`
-		APIType string `json:"api_type"`
+		Name      string `json:"name"`
+		BaseURL   string `json:"base_url"`
+		APIKey    string `json:"api_key"`
+		APIType   string `json:"api_type"`
+		MaxTokens int    `json:"max_tokens"`
 	}
 	if err := readJSON(r, &p); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
+	if p.MaxTokens <= 0 {
+		p.MaxTokens = 2
+	}
+
 	provider := &model.Provider{
-		Name:    p.Name,
-		BaseURL: p.BaseURL,
-		APIKey:  p.APIKey,
-		APIType: model.APIType(p.APIType),
-		Enabled: true,
+		Name:      p.Name,
+		BaseURL:   p.BaseURL,
+		APIKey:    p.APIKey,
+		APIType:   model.APIType(p.APIType),
+		MaxTokens: p.MaxTokens,
+		Enabled:   true,
 	}
 
 	if err := h.store.CreateProvider(provider); err != nil {
@@ -110,24 +116,30 @@ func (h *Handler) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var p struct {
-		Name    string `json:"name"`
-		BaseURL string `json:"base_url"`
-		APIKey  string `json:"api_key"`
-		APIType string `json:"api_type"`
-		Enabled bool   `json:"enabled"`
+		Name      string `json:"name"`
+		BaseURL   string `json:"base_url"`
+		APIKey    string `json:"api_key"`
+		APIType   string `json:"api_type"`
+		MaxTokens int    `json:"max_tokens"`
+		Enabled   bool   `json:"enabled"`
 	}
 	if err := readJSON(r, &p); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
+	if p.MaxTokens <= 0 {
+		p.MaxTokens = 2
+	}
+
 	provider := &model.Provider{
-		ID:      id,
-		Name:    p.Name,
-		BaseURL: p.BaseURL,
-		APIKey:  p.APIKey,
-		APIType: model.APIType(p.APIType),
-		Enabled: p.Enabled,
+		ID:        id,
+		Name:      p.Name,
+		BaseURL:   p.BaseURL,
+		APIKey:    p.APIKey,
+		APIType:   model.APIType(p.APIType),
+		MaxTokens: p.MaxTokens,
+		Enabled:   p.Enabled,
 	}
 
 	if err := h.store.UpdateProvider(provider); err != nil {

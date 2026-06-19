@@ -162,7 +162,7 @@ async function loadProviders() {
         const tbody = document.getElementById('providersTable');
         
         if (providers.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No providers configured</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No providers configured</td></tr>';
             return;
         }
         
@@ -171,6 +171,7 @@ async function loadProviders() {
                 <td>${escapeHtml(p.name)}</td>
                 <td>${escapeHtml(p.base_url)}</td>
                 <td>${p.api_type}</td>
+                <td>${p.max_tokens || 2}</td>
                 <td><span class="status-badge ${p.enabled ? 'success' : 'neutral'}">${p.enabled ? 'Active' : 'Disabled'}</span></td>
                 <td>
                     <button class="btn btn-sm btn-secondary" onclick="fetchModels(${p.id})">Fetch Models</button>
@@ -206,6 +207,10 @@ function showAddProvider() {
                     <option value="anthropic">Anthropic</option>
                 </select>
             </div>
+            <div class="form-group">
+                <label>Max Tokens</label>
+                <input type="number" name="max_tokens" value="2" min="1" placeholder="2">
+            </div>
             <div class="form-actions">
                 <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
                 <button type="submit" class="btn btn-primary">Add</button>
@@ -221,7 +226,8 @@ function showAddProvider() {
                 name: formData.get('name'),
                 base_url: formData.get('base_url'),
                 api_key: formData.get('api_key'),
-                api_type: formData.get('api_type')
+                api_type: formData.get('api_type'),
+                max_tokens: parseInt(formData.get('max_tokens')) || 2
             });
             hideModal();
             loadProviders();

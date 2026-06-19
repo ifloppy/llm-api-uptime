@@ -33,7 +33,7 @@ func TestProbeOpenAISuccess(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := probeOpenAI(context.Background(), server.URL, "test-key", "test", "gpt-4")
+	result := probeOpenAI(context.Background(), server.URL, "test-key", "test", "gpt-4", 2)
 
 	if result.Status != model.StatusSuccess {
 		t.Errorf("Status = %q, want success", result.Status)
@@ -63,7 +63,7 @@ func TestProbeOpenAIError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := probeOpenAI(context.Background(), server.URL, "test-key", "test", "invalid-model")
+	result := probeOpenAI(context.Background(), server.URL, "test-key", "test", "invalid-model", 2)
 
 	if result.Status != model.StatusError {
 		t.Errorf("Status = %q, want error", result.Status)
@@ -85,7 +85,7 @@ func TestProbeOpenAIEmptyResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := probeOpenAI(context.Background(), server.URL, "test-key", "test", "gpt-4")
+	result := probeOpenAI(context.Background(), server.URL, "test-key", "test", "gpt-4", 2)
 
 	if result.Status != model.StatusEmptyResp {
 		t.Errorf("Status = %q, want empty_response", result.Status)
@@ -102,7 +102,7 @@ func TestProbeOpenAITimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	result := probeOpenAI(ctx, server.URL, "test-key", "test", "gpt-4")
+	result := probeOpenAI(ctx, server.URL, "test-key", "test", "gpt-4", 2)
 
 	if result.Status != model.StatusTimeout {
 		t.Errorf("Status = %q, want timeout", result.Status)
@@ -110,7 +110,7 @@ func TestProbeOpenAITimeout(t *testing.T) {
 }
 
 func TestProbeOpenAINetworkError(t *testing.T) {
-	result := probeOpenAI(context.Background(), "http://localhost:1", "test-key", "test", "gpt-4")
+	result := probeOpenAI(context.Background(), "http://localhost:1", "test-key", "test", "gpt-4", 2)
 
 	if result.Status != model.StatusError {
 		t.Errorf("Status = %q, want error", result.Status)
@@ -134,7 +134,7 @@ func TestProbeOpenAIUnauthorized(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := probeOpenAI(context.Background(), server.URL, "invalid-key", "test", "gpt-4")
+	result := probeOpenAI(context.Background(), server.URL, "invalid-key", "test", "gpt-4", 2)
 
 	if result.Status != model.StatusError {
 		t.Errorf("Status = %q, want error", result.Status)
@@ -158,7 +158,7 @@ func TestProbeOpenAIEmptyChoices(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := probeOpenAI(context.Background(), server.URL, "test-key", "test", "gpt-4")
+	result := probeOpenAI(context.Background(), server.URL, "test-key", "test", "gpt-4", 2)
 
 	if result.Status != model.StatusEmptyContent {
 		t.Errorf("Status = %q, want empty_content", result.Status)
@@ -184,7 +184,7 @@ func TestProbeOpenAIEmptyContent(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := probeOpenAI(context.Background(), server.URL, "test-key", "test", "gpt-4")
+	result := probeOpenAI(context.Background(), server.URL, "test-key", "test", "gpt-4", 2)
 
 	if result.Status != model.StatusEmptyContent {
 		t.Errorf("Status = %q, want empty_content", result.Status)
@@ -207,7 +207,7 @@ func TestProbeOpenAIWithTokens(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := probeOpenAI(context.Background(), server.URL, "test-key", "test", "gpt-4")
+	result := probeOpenAI(context.Background(), server.URL, "test-key", "test", "gpt-4", 2)
 
 	if result.Status != model.StatusSuccess {
 		t.Errorf("Status = %q, want success", result.Status)
@@ -248,7 +248,7 @@ func TestProbeAnthropicSuccess(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := probeAnthropic(context.Background(), server.URL, "test-key", "test", "claude-3")
+	result := probeAnthropic(context.Background(), server.URL, "test-key", "test", "claude-3", 2)
 
 	if result.Status != model.StatusSuccess {
 		t.Errorf("Status = %q, want success", result.Status)
@@ -270,7 +270,7 @@ func TestProbeAnthropicError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := probeAnthropic(context.Background(), server.URL, "test-key", "test", "invalid")
+	result := probeAnthropic(context.Background(), server.URL, "test-key", "test", "invalid", 2)
 
 	if result.Status != model.StatusError {
 		t.Errorf("Status = %q, want error", result.Status)

@@ -40,12 +40,16 @@ type anthropicResponse struct {
 	} `json:"error,omitempty"`
 }
 
-func probeAnthropic(ctx context.Context, baseURL, apiKey, providerName, modelID string) *model.Result {
+func probeAnthropic(ctx context.Context, baseURL, apiKey, providerName, modelID string, maxTokens int) *model.Result {
 	start := time.Now()
+
+	if maxTokens <= 0 {
+		maxTokens = 2
+	}
 
 	reqBody := anthropicRequest{
 		Model:     modelID,
-		MaxTokens: 2,
+		MaxTokens: maxTokens,
 		Messages: []anthropicMessage{
 			{Role: "user", Content: "Hi"},
 		},
