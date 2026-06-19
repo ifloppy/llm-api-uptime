@@ -27,7 +27,17 @@ type openAIMessage struct {
 
 type openAIResponse struct {
 	ID      string `json:"id"`
-	Error   *struct {
+	Choices []struct {
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
+	} `json:"choices,omitempty"`
+	Usage struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+		TotalTokens      int `json:"total_tokens"`
+	} `json:"usage,omitempty"`
+	Error *struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
 		Type    string `json:"type"`
@@ -118,6 +128,9 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 	if rid := resp.Header.Get("x-request-id"); rid != "" {
 		requestID = rid
 	}
+	if rid := resp.Header.Get("x-oneapi-request-id"); rid != "" {
+		requestID = rid
+	}
 
 	if openAIResp.Error != nil {
 		return &model.Result{
@@ -141,10 +154,42 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 		}
 	}
 
+	if len(openAIResp.Choices) == 0 {
+		return &model.Result{
+			Status:       model.StatusEmptyContent,
+			StatusCode:   resp.StatusCode,
+			LatencyMs:    latency,
+			ErrorMessage: "empty choices in response",
+			RequestID:    requestID,
+			RawError:     string(respBody),
+		}
+	}
+
+	content := strings.TrimSpace(openAIResp.Choices[0].Message.Content)
+	if content == "" {
+		return &model.Result{
+			Status:       model.StatusEmptyContent,
+			StatusCode:   resp.StatusCode,
+			LatencyMs:    latency,
+			ErrorMessage: "empty content in response",
+			RequestID:    requestID,
+			RawError:     string(respBody),
+		}
+	}
+
+	tps := 0.0
+	if latency > 0 && openAIResp.Usage.CompletionTokens > 0 {
+		tps = float64(openAIResp.Usage.CompletionTokens) / (float64(latency) / 1000.0)
+	}
+
 	return &model.Result{
-		Status:     model.StatusSuccess,
-		StatusCode: resp.StatusCode,
-		LatencyMs:  latency,
-		RequestID:  requestID,
+		Status:           model.StatusSuccess,
+		StatusCode:       resp.StatusCode,
+		LatencyMs:        latency,
+		PromptTokens:     openAIResp.Usage.PromptTokens,
+		CompletionTokens: openAIResp.Usage.CompletionTokens,
+		TotalTokens:      openAIResp.Usage.TotalTokens,
+		TPS:              tps,
+		RequestID:        requestID,
 	}
 }

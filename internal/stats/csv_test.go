@@ -106,8 +106,9 @@ func TestExportCSV(t *testing.T) {
 	header := records[0]
 	expectedHeaders := []string{
 		"Provider", "Model", "Time Range", "Total Probes",
-		"Success", "Error", "Timeout", "Empty Response",
-		"Success Rate (%)", "Avg Latency (ms)", "Downtime Periods",
+		"Success", "Error", "Timeout", "Empty Response", "Empty Content",
+		"Success Rate (%)", "Avg Latency (ms)", "Avg TPS",
+		"Downtime Periods",
 	}
 
 	if len(header) != len(expectedHeaders) {

@@ -368,13 +368,14 @@ async function loadStats() {
         const tbody = document.getElementById('statsTable');
         
         if (stats.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No statistics available</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No statistics available</td></tr>';
             return;
         }
         
         let html = '';
         stats.forEach(ps => {
             ps.models.forEach(ms => {
+                const tpsClass = ms.avg_tps >= 10 ? 'rate-good' : (ms.avg_tps >= 1 ? 'rate-warning' : 'rate-bad');
                 html += `
                     <tr>
                         <td>${escapeHtml(ms.provider_name)}</td>
@@ -382,6 +383,7 @@ async function loadStats() {
                         <td>${ms.total_probes}</td>
                         <td><span class="${getRateClass(ms.success_rate)}">${ms.success_rate.toFixed(1)}%</span></td>
                         <td>${ms.avg_latency_ms.toFixed(0)}ms</td>
+                        <td><span class="${tpsClass}">${ms.avg_tps.toFixed(2)}</span></td>
                     </tr>
                 `;
             });

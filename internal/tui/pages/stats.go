@@ -153,6 +153,7 @@ func (s *Stats) View() string {
 				TableCellStyle.Width(10).Render("Probes"),
 				TableCellStyle.Width(10).Render("Success%"),
 				TableCellStyle.Width(12).Render("Avg Latency"),
+				TableCellStyle.Width(10).Render("Avg TPS"),
 			),
 		),
 	}
@@ -166,6 +167,14 @@ func (s *Stats) View() string {
 			}
 			if ms.SuccessRate < 95 {
 				rateStyle = ErrorStyle
+			}
+
+			tpsStyle := SuccessStyle
+			if ms.AvgTPS < 10 {
+				tpsStyle = WarningStyle
+			}
+			if ms.AvgTPS < 1 {
+				tpsStyle = ErrorStyle
 			}
 
 			prefix := "  "
@@ -183,6 +192,7 @@ func (s *Stats) View() string {
 					TableCellStyle.Width(10).Render(fmt.Sprintf("%d", ms.TotalProbes)),
 					TableCellStyle.Width(10).Render(rateStyle.Render(fmt.Sprintf("%.1f%%", ms.SuccessRate))),
 					TableCellStyle.Width(12).Render(fmt.Sprintf("%.0fms", ms.AvgLatencyMs)),
+					TableCellStyle.Width(10).Render(tpsStyle.Render(fmt.Sprintf("%.2f", ms.AvgTPS))),
 				),
 			)
 			rows = append(rows, row)

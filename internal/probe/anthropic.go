@@ -25,7 +25,15 @@ type anthropicMessage struct {
 }
 
 type anthropicResponse struct {
-	ID    string `json:"id"`
+	ID      string `json:"id"`
+	Content []struct {
+		Text string `json:"text"`
+		Type string `json:"type"`
+	} `json:"content,omitempty"`
+	Usage struct {
+		InputTokens  int `json:"input_tokens"`
+		OutputTokens int `json:"output_tokens"`
+	} `json:"usage,omitempty"`
 	Error *struct {
 		Type    string `json:"type"`
 		Message string `json:"message"`
@@ -116,6 +124,9 @@ func probeAnthropic(ctx context.Context, baseURL, apiKey, providerName, modelID 
 	if rid := resp.Header.Get("x-request-id"); rid != "" {
 		requestID = rid
 	}
+	if rid := resp.Header.Get("x-oneapi-request-id"); rid != "" {
+		requestID = rid
+	}
 
 	if anthropicResp.Error != nil {
 		return &model.Result{
@@ -139,10 +150,46 @@ func probeAnthropic(ctx context.Context, baseURL, apiKey, providerName, modelID 
 		}
 	}
 
+	if len(anthropicResp.Content) == 0 {
+		return &model.Result{
+			Status:       model.StatusEmptyContent,
+			StatusCode:   resp.StatusCode,
+			LatencyMs:    latency,
+			ErrorMessage: "empty content in response",
+			RequestID:    requestID,
+			RawError:     string(respBody),
+		}
+	}
+
+	content := strings.TrimSpace(anthropicResp.Content[0].Text)
+	if content == "" {
+		return &model.Result{
+			Status:       model.StatusEmptyContent,
+			StatusCode:   resp.StatusCode,
+			LatencyMs:    latency,
+			ErrorMessage: "empty content text in response",
+			RequestID:    requestID,
+			RawError:     string(respBody),
+		}
+	}
+
+	promptTokens := anthropicResp.Usage.InputTokens
+	completionTokens := anthropicResp.Usage.OutputTokens
+	totalTokens := promptTokens + completionTokens
+
+	tps := 0.0
+	if latency > 0 && completionTokens > 0 {
+		tps = float64(completionTokens) / (float64(latency) / 1000.0)
+	}
+
 	return &model.Result{
-		Status:     model.StatusSuccess,
-		StatusCode: resp.StatusCode,
-		LatencyMs:  latency,
-		RequestID:  requestID,
+		Status:           model.StatusSuccess,
+		StatusCode:       resp.StatusCode,
+		LatencyMs:        latency,
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+		TotalTokens:      totalTokens,
+		TPS:              tps,
+		RequestID:        requestID,
 	}
 }

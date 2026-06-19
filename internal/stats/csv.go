@@ -15,8 +15,9 @@ func ExportCSV(w io.Writer, s *store.Store, query model.StatsQuery) error {
 
 	header := []string{
 		"Provider", "Model", "Time Range", "Total Probes",
-		"Success", "Error", "Timeout", "Empty Response",
-		"Success Rate (%)", "Avg Latency (ms)", "Downtime Periods",
+		"Success", "Error", "Timeout", "Empty Response", "Empty Content",
+		"Success Rate (%)", "Avg Latency (ms)", "Avg TPS",
+		"Downtime Periods",
 	}
 	if err := writer.Write(header); err != nil {
 		return fmt.Errorf("write header: %w", err)
@@ -68,8 +69,10 @@ func ExportCSV(w io.Writer, s *store.Store, query model.StatsQuery) error {
 				fmt.Sprintf("%d", ms.ErrorCount),
 				fmt.Sprintf("%d", ms.TimeoutCount),
 				fmt.Sprintf("%d", ms.EmptyRespCount),
+				fmt.Sprintf("%d", ms.EmptyContentCount),
 				fmt.Sprintf("%.2f", ms.SuccessRate),
 				fmt.Sprintf("%.0f", ms.AvgLatencyMs),
+				fmt.Sprintf("%.2f", ms.AvgTPS),
 				downtimeStr,
 			}
 			if err := writer.Write(row); err != nil {

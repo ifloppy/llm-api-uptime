@@ -144,6 +144,88 @@ func TestProbeOpenAIUnauthorized(t *testing.T) {
 	}
 }
 
+func TestProbeOpenAIEmptyChoices(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"id":      "chatcmpl-123",
+			"choices": []interface{}{},
+			"usage": map[string]interface{}{
+				"prompt_tokens":     10,
+				"completion_tokens": 0,
+				"total_tokens":      10,
+			},
+		})
+	}))
+	defer server.Close()
+
+	result := probeOpenAI(context.Background(), server.URL, "test-key", "test", "gpt-4")
+
+	if result.Status != model.StatusEmptyContent {
+		t.Errorf("Status = %q, want empty_content", result.Status)
+	}
+	if result.ErrorMessage != "empty choices in response" {
+		t.Errorf("ErrorMessage = %q, want 'empty choices in response'", result.ErrorMessage)
+	}
+}
+
+func TestProbeOpenAIEmptyContent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"id": "chatcmpl-123",
+			"choices": []map[string]interface{}{
+				{"message": map[string]string{"content": ""}},
+			},
+			"usage": map[string]interface{}{
+				"prompt_tokens":     10,
+				"completion_tokens": 0,
+				"total_tokens":      10,
+			},
+		})
+	}))
+	defer server.Close()
+
+	result := probeOpenAI(context.Background(), server.URL, "test-key", "test", "gpt-4")
+
+	if result.Status != model.StatusEmptyContent {
+		t.Errorf("Status = %q, want empty_content", result.Status)
+	}
+}
+
+func TestProbeOpenAIWithTokens(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"id": "chatcmpl-123",
+			"choices": []map[string]interface{}{
+				{"message": map[string]string{"content": "Hello!"}},
+			},
+			"usage": map[string]interface{}{
+				"prompt_tokens":     10,
+				"completion_tokens": 5,
+				"total_tokens":      15,
+			},
+		})
+	}))
+	defer server.Close()
+
+	result := probeOpenAI(context.Background(), server.URL, "test-key", "test", "gpt-4")
+
+	if result.Status != model.StatusSuccess {
+		t.Errorf("Status = %q, want success", result.Status)
+	}
+	if result.PromptTokens != 10 {
+		t.Errorf("PromptTokens = %d, want 10", result.PromptTokens)
+	}
+	if result.CompletionTokens != 5 {
+		t.Errorf("CompletionTokens = %d, want 5", result.CompletionTokens)
+	}
+	if result.TotalTokens != 15 {
+		t.Errorf("TotalTokens = %d, want 15", result.TotalTokens)
+	}
+	if result.TPS <= 0 {
+		t.Error("expected positive TPS")
+	}
+}
+
 func TestProbeAnthropicSuccess(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/messages" {

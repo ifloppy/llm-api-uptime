@@ -9,9 +9,13 @@ import (
 
 func (s *Store) SaveResult(r *model.Result) error {
 	result, err := s.db.Exec(
-		`INSERT INTO results (probe_id, status, status_code, latency_ms, error_code, error_message, request_id, raw_error, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.ProbeID, r.Status, r.StatusCode, r.LatencyMs, r.ErrorCode, r.ErrorMessage, r.RequestID, r.RawError, r.CreatedAt,
+		`INSERT INTO results (probe_id, status, status_code, latency_ms, 
+		 prompt_tokens, completion_tokens, total_tokens, tps,
+		 error_code, error_message, request_id, raw_error, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.ProbeID, r.Status, r.StatusCode, r.LatencyMs,
+		r.PromptTokens, r.CompletionTokens, r.TotalTokens, r.TPS,
+		r.ErrorCode, r.ErrorMessage, r.RequestID, r.RawError, r.CreatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("insert result: %w", err)
@@ -40,7 +44,9 @@ func (s *Store) GetStats(query model.StatsQuery) ([]model.ProviderStats, error) 
 			SUM(CASE WHEN r.status = 'error' THEN 1 ELSE 0 END) as error_count,
 			SUM(CASE WHEN r.status = 'timeout' THEN 1 ELSE 0 END) as timeout_count,
 			SUM(CASE WHEN r.status = 'empty_response' THEN 1 ELSE 0 END) as empty_resp_count,
-			AVG(CASE WHEN r.status = 'success' THEN r.latency_ms ELSE NULL END) as avg_latency
+			SUM(CASE WHEN r.status = 'empty_content' THEN 1 ELSE 0 END) as empty_content_count,
+			AVG(CASE WHEN r.status = 'success' THEN r.latency_ms ELSE NULL END) as avg_latency,
+			AVG(CASE WHEN r.status = 'success' AND r.tps > 0 THEN r.tps ELSE NULL END) as avg_tps
 		FROM results r
 		JOIN probes p ON r.probe_id = p.id
 		JOIN providers pr ON p.provider_id = pr.id
@@ -60,15 +66,20 @@ func (s *Store) GetStats(query model.StatsQuery) ([]model.ProviderStats, error) 
 		var ms model.ModelStats
 		var providerName string
 		var avgLatency sql.NullFloat64
+		var avgTPS sql.NullFloat64
 
 		err := rows.Scan(&providerName, &ms.Model, &ms.TotalProbes, &ms.SuccessCount,
-			&ms.ErrorCount, &ms.TimeoutCount, &ms.EmptyRespCount, &avgLatency)
+			&ms.ErrorCount, &ms.TimeoutCount, &ms.EmptyRespCount, &ms.EmptyContentCount,
+			&avgLatency, &avgTPS)
 		if err != nil {
 			return nil, fmt.Errorf("scan stats: %w", err)
 		}
 
 		if avgLatency.Valid {
 			ms.AvgLatencyMs = avgLatency.Float64
+		}
+		if avgTPS.Valid {
+			ms.AvgTPS = avgTPS.Float64
 		}
 		ms.ProviderName = providerName
 		ms.StartTime = since
@@ -149,7 +160,9 @@ func (s *Store) GetDowntimePeriods(probeID int64, since time.Time) ([]model.Down
 
 func (s *Store) GetResultsForProbe(probeID int64, since time.Time) ([]model.Result, error) {
 	rows, err := s.db.Query(`
-		SELECT id, probe_id, status, status_code, latency_ms, error_code, error_message, request_id, raw_error, created_at
+		SELECT id, probe_id, status, status_code, latency_ms, 
+		       prompt_tokens, completion_tokens, total_tokens, tps,
+		       error_code, error_message, request_id, raw_error, created_at
 		FROM results
 		WHERE probe_id = ? AND created_at >= ?
 		ORDER BY created_at DESC
@@ -163,6 +176,7 @@ func (s *Store) GetResultsForProbe(probeID int64, since time.Time) ([]model.Resu
 	for rows.Next() {
 		var r model.Result
 		if err := rows.Scan(&r.ID, &r.ProbeID, &r.Status, &r.StatusCode, &r.LatencyMs,
+			&r.PromptTokens, &r.CompletionTokens, &r.TotalTokens, &r.TPS,
 			&r.ErrorCode, &r.ErrorMessage, &r.RequestID, &r.RawError, &r.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan result: %w", err)
 		}

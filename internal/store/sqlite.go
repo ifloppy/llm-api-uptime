@@ -60,9 +60,13 @@ func (s *Store) migrate() error {
 		`CREATE TABLE IF NOT EXISTS results (
 			id            INTEGER PRIMARY KEY AUTOINCREMENT,
 			probe_id      INTEGER NOT NULL REFERENCES probes(id) ON DELETE CASCADE,
-			status        TEXT NOT NULL CHECK(status IN ('success', 'error', 'timeout', 'empty_response')),
+			status        TEXT NOT NULL CHECK(status IN ('success', 'error', 'timeout', 'empty_response', 'empty_content')),
 			status_code   INTEGER,
 			latency_ms    INTEGER,
+			prompt_tokens      INTEGER DEFAULT 0,
+			completion_tokens  INTEGER DEFAULT 0,
+			total_tokens       INTEGER DEFAULT 0,
+			tps                REAL DEFAULT 0,
 			error_code    TEXT,
 			error_message TEXT,
 			request_id    TEXT,
@@ -79,7 +83,17 @@ func (s *Store) migrate() error {
 		}
 	}
 
+	s.migrateAlterColumn("prompt_tokens", "INTEGER DEFAULT 0")
+	s.migrateAlterColumn("completion_tokens", "INTEGER DEFAULT 0")
+	s.migrateAlterColumn("total_tokens", "INTEGER DEFAULT 0")
+	s.migrateAlterColumn("tps", "REAL DEFAULT 0")
+
 	return nil
+}
+
+func (s *Store) migrateAlterColumn(column, columnDef string) {
+	query := fmt.Sprintf("ALTER TABLE results ADD COLUMN %s %s", column, columnDef)
+	s.db.Exec(query)
 }
 
 func (s *Store) Cleanup(retentionDays int) error {

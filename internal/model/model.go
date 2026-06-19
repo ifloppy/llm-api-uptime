@@ -35,19 +35,24 @@ const (
 	StatusError        ProbeStatus = "error"
 	StatusTimeout      ProbeStatus = "timeout"
 	StatusEmptyResp    ProbeStatus = "empty_response"
+	StatusEmptyContent ProbeStatus = "empty_content"
 )
 
 type Result struct {
-	ID            int64       `json:"id"`
-	ProbeID       int64       `json:"probe_id"`
-	Status        ProbeStatus `json:"status"`
-	StatusCode    int         `json:"status_code"`
-	LatencyMs     int         `json:"latency_ms"`
-	ErrorCode     string      `json:"error_code"`
-	ErrorMessage  string      `json:"error_message"`
-	RequestID     string      `json:"request_id"`
-	RawError      string      `json:"raw_error"`
-	CreatedAt     time.Time   `json:"created_at"`
+	ID                int64       `json:"id"`
+	ProbeID           int64       `json:"probe_id"`
+	Status            ProbeStatus `json:"status"`
+	StatusCode        int         `json:"status_code"`
+	LatencyMs         int         `json:"latency_ms"`
+	PromptTokens      int         `json:"prompt_tokens"`
+	CompletionTokens  int         `json:"completion_tokens"`
+	TotalTokens       int         `json:"total_tokens"`
+	TPS               float64     `json:"tps"`
+	ErrorCode         string      `json:"error_code"`
+	ErrorMessage      string      `json:"error_message"`
+	RequestID         string      `json:"request_id"`
+	RawError          string      `json:"raw_error"`
+	CreatedAt         time.Time   `json:"created_at"`
 }
 
 type ProbeWithProvider struct {
@@ -64,17 +69,19 @@ type StatsQuery struct {
 }
 
 type ModelStats struct {
-	ProviderName   string    `json:"provider_name"`
-	Model          string    `json:"model"`
-	TotalProbes    int       `json:"total_probes"`
-	SuccessCount   int       `json:"success_count"`
-	ErrorCount     int       `json:"error_count"`
-	TimeoutCount   int       `json:"timeout_count"`
-	EmptyRespCount int       `json:"empty_resp_count"`
-	SuccessRate    float64   `json:"success_rate"`
-	AvgLatencyMs   float64   `json:"avg_latency_ms"`
-	StartTime      time.Time `json:"start_time"`
-	EndTime        time.Time `json:"end_time"`
+	ProviderName      string    `json:"provider_name"`
+	Model             string    `json:"model"`
+	TotalProbes       int       `json:"total_probes"`
+	SuccessCount      int       `json:"success_count"`
+	ErrorCount        int       `json:"error_count"`
+	TimeoutCount      int       `json:"timeout_count"`
+	EmptyRespCount    int       `json:"empty_resp_count"`
+	EmptyContentCount int       `json:"empty_content_count"`
+	SuccessRate       float64   `json:"success_rate"`
+	AvgLatencyMs      float64   `json:"avg_latency_ms"`
+	AvgTPS            float64   `json:"avg_tps"`
+	StartTime         time.Time `json:"start_time"`
+	EndTime           time.Time `json:"end_time"`
 }
 
 type ProviderStats struct {
@@ -91,16 +98,18 @@ type DowntimePeriod struct {
 }
 
 type CSVRow struct {
-	ProviderName   string
-	Model          string
-	TimeRange      string
-	TotalProbes    int
-	SuccessCount   int
-	ErrorCount     int
-	TimeoutCount   int
-	EmptyRespCount int
-	SuccessRate    float64
-	AvgLatencyMs   float64
+	ProviderName    string
+	Model           string
+	TimeRange       string
+	TotalProbes     int
+	SuccessCount    int
+	ErrorCount      int
+	TimeoutCount    int
+	EmptyRespCount  int
+	EmptyContentCount int
+	SuccessRate     float64
+	AvgLatencyMs    float64
+	AvgTPS          float64
 	DowntimePeriods string
 }
 
