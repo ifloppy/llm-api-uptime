@@ -76,7 +76,7 @@ func (s *Store) ListAllProbes() ([]model.Probe, error) {
 func (s *Store) GetEnabledProbes() ([]model.ProbeWithProvider, error) {
 	rows, err := s.db.Query(`
 		SELECT p.id, p.provider_id, p.model, p.enabled, p.created_at,
-		       pr.name, pr.base_url, pr.api_type
+		       pr.name, pr.base_url, pr.api_key, pr.api_type
 		FROM probes p
 		JOIN providers pr ON p.provider_id = pr.id
 		WHERE p.enabled = 1 AND pr.enabled = 1
@@ -91,7 +91,7 @@ func (s *Store) GetEnabledProbes() ([]model.ProbeWithProvider, error) {
 	for rows.Next() {
 		var p model.ProbeWithProvider
 		if err := rows.Scan(&p.ID, &p.ProviderID, &p.Model, &p.Enabled, &p.CreatedAt,
-			&p.ProviderName, &p.ProviderURL, &p.APIType); err != nil {
+			&p.ProviderName, &p.ProviderURL, &p.APIKey, &p.APIType); err != nil {
 			return nil, fmt.Errorf("scan probe: %w", err)
 		}
 		probes = append(probes, p)

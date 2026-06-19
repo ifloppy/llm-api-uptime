@@ -32,7 +32,7 @@ type anthropicResponse struct {
 	} `json:"error,omitempty"`
 }
 
-func probeAnthropic(ctx context.Context, baseURL, providerName, modelID string) *model.Result {
+func probeAnthropic(ctx context.Context, baseURL, apiKey, providerName, modelID string) *model.Result {
 	start := time.Now()
 
 	reqBody := anthropicRequest{
@@ -61,6 +61,7 @@ func probeAnthropic(ctx context.Context, baseURL, providerName, modelID string) 
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", apiKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
 
 	client := &http.Client{Timeout: 0}

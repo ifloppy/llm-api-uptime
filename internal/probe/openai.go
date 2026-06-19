@@ -34,7 +34,7 @@ type openAIResponse struct {
 	} `json:"error,omitempty"`
 }
 
-func probeOpenAI(ctx context.Context, baseURL, providerName, modelID string) *model.Result {
+func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID string) *model.Result {
 	start := time.Now()
 
 	reqBody := openAIRequest{
@@ -64,6 +64,7 @@ func probeOpenAI(ctx context.Context, baseURL, providerName, modelID string) *mo
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
 
 	client := &http.Client{Timeout: 0}
 	resp, err := client.Do(req)

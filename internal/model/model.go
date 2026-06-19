@@ -54,6 +54,7 @@ type ProbeWithProvider struct {
 	Probe
 	ProviderName string  `json:"provider_name"`
 	ProviderURL  string  `json:"provider_url"`
+	APIKey       string  `json:"api_key"`
 	APIType      APIType `json:"api_type"`
 }
 
