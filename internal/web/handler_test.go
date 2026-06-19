@@ -3,6 +3,7 @@ package web
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -436,5 +437,174 @@ func TestRegisterRoutes(t *testing.T) {
 				t.Errorf("route %s %s not registered", route.method, route.path)
 			}
 		})
+	}
+}
+
+func TestHandleFetchModels(t *testing.T) {
+	// Create a mock server that simulates the models API
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer test-key" {
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"data": []map[string]string{
+				{"id": "gpt-4"},
+				{"id": "gpt-3.5-turbo"},
+			},
+		})
+	}))
+	defer server.Close()
+
+	handler, db := setupTestHandler(t)
+	provider := &model.Provider{
+		Name:    "TestProvider",
+		BaseURL: server.URL,
+		APIKey:  "test-key",
+		APIType: model.APITypeOpenAI,
+		Enabled: true,
+	}
+	db.CreateProvider(provider)
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/providers/%d/models", provider.ID), nil)
+	req.SetPathValue("id", fmt.Sprintf("%d", provider.ID))
+	rec := httptest.NewRecorder()
+
+	handler.handleFetchModels(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rec.Code)
+	}
+
+	var resp map[string]interface{}
+	json.NewDecoder(rec.Body).Decode(&resp)
+
+	models, ok := resp["models"].([]interface{})
+	if !ok {
+		t.Fatal("expected models array in response")
+	}
+	if len(models) != 2 {
+		t.Errorf("expected 2 models, got %d", len(models))
+	}
+}
+
+func TestHandleFetchModelsInvalidID(t *testing.T) {
+	handler, _ := setupTestHandler(t)
+
+	req := httptest.NewRequest("GET", "/api/providers/invalid/models", nil)
+	req.SetPathValue("id", "invalid")
+	rec := httptest.NewRecorder()
+
+	handler.handleFetchModels(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestHandleFetchModelsProviderNotFound(t *testing.T) {
+	handler, _ := setupTestHandler(t)
+
+	req := httptest.NewRequest("GET", "/api/providers/999/models", nil)
+	req.SetPathValue("id", "999")
+	rec := httptest.NewRecorder()
+
+	handler.handleFetchModels(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", rec.Code)
+	}
+}
+
+func TestHandleListProbesInvalidProviderID(t *testing.T) {
+	handler, _ := setupTestHandler(t)
+
+	req := httptest.NewRequest("GET", "/api/probes?provider_id=invalid", nil)
+	rec := httptest.NewRecorder()
+
+	handler.handleListProbes(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestHandleCreateProbeInvalidJSON(t *testing.T) {
+	handler, _ := setupTestHandler(t)
+
+	req := httptest.NewRequest("POST", "/api/probes", bytes.NewBufferString("invalid"))
+	rec := httptest.NewRecorder()
+
+	handler.handleCreateProbe(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestHandleDeleteProbeInvalidID(t *testing.T) {
+	handler, _ := setupTestHandler(t)
+
+	req := httptest.NewRequest("DELETE", "/api/probes/invalid", nil)
+	req.SetPathValue("id", "invalid")
+	rec := httptest.NewRecorder()
+
+	handler.handleDeleteProbe(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestHandleStatsWithDays(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	provider := createTestProviderInDB(t, db, "TestProvider")
+	probe := &model.Probe{ProviderID: provider.ID, Model: "gpt-4", Enabled: true}
+	db.CreateProbe(probe)
+
+	db.SaveResult(&model.Result{
+		ProbeID:   probe.ID,
+		Status:    model.StatusSuccess,
+		StatusCode: 200,
+		LatencyMs: 100,
+		CreatedAt: time.Now(),
+	})
+
+	req := httptest.NewRequest("GET", "/api/stats?days=7", nil)
+	rec := httptest.NewRecorder()
+
+	handler.handleStats(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rec.Code)
+	}
+}
+
+func TestHandleExportCSVWithDays(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	provider := createTestProviderInDB(t, db, "TestProvider")
+	probe := &model.Probe{ProviderID: provider.ID, Model: "gpt-4", Enabled: true}
+	db.CreateProbe(probe)
+
+	db.SaveResult(&model.Result{
+		ProbeID:   probe.ID,
+		Status:    model.StatusSuccess,
+		StatusCode: 200,
+		LatencyMs: 100,
+		CreatedAt: time.Now(),
+	})
+
+	req := httptest.NewRequest("GET", "/api/export/csv?days=30", nil)
+	rec := httptest.NewRecorder()
+
+	handler.handleExportCSV(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rec.Code)
 	}
 }
