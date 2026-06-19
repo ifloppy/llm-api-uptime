@@ -608,3 +608,162 @@ func TestHandleExportCSVWithDays(t *testing.T) {
 		t.Errorf("expected 200, got %d", rec.Code)
 	}
 }
+
+func TestHandleUpdateProviderInvalidJSON(t *testing.T) {
+	handler, _ := setupTestHandler(t)
+
+	req := httptest.NewRequest("PUT", "/api/providers/1", bytes.NewBufferString("invalid"))
+	req.SetPathValue("id", "1")
+	rec := httptest.NewRecorder()
+
+	handler.handleUpdateProvider(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestHandleCreateProviderDuplicateName(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	createTestProviderInDB(t, db, "Duplicate")
+
+	body := `{"name": "Duplicate", "base_url": "https://api.new.com", "api_key": "new-key", "api_type": "openai"}`
+	req := httptest.NewRequest("POST", "/api/providers", bytes.NewBufferString(body))
+	rec := httptest.NewRecorder()
+
+	handler.handleCreateProvider(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", rec.Code)
+	}
+}
+
+func TestHandleFetchModelsServerDown(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	provider := &model.Provider{
+		Name:    "TestProvider",
+		BaseURL: "http://localhost:1", // Server not running
+		APIKey:  "test-key",
+		APIType: model.APITypeOpenAI,
+		Enabled: true,
+	}
+	db.CreateProvider(provider)
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/providers/%d/models", provider.ID), nil)
+	req.SetPathValue("id", fmt.Sprintf("%d", provider.ID))
+	rec := httptest.NewRecorder()
+
+	handler.handleFetchModels(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", rec.Code)
+	}
+}
+
+func TestHandleStatsInvalidHours(t *testing.T) {
+	handler, _ := setupTestHandler(t)
+
+	req := httptest.NewRequest("GET", "/api/stats?hours=invalid", nil)
+	rec := httptest.NewRecorder()
+
+	handler.handleStats(rec, req)
+
+	// Should still return 200 with default query
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rec.Code)
+	}
+}
+
+func TestHandleExportCSVInvalidDays(t *testing.T) {
+	handler, _ := setupTestHandler(t)
+
+	req := httptest.NewRequest("GET", "/api/export/csv?days=invalid", nil)
+	rec := httptest.NewRecorder()
+
+	handler.handleExportCSV(rec, req)
+
+	// Should still return 200 with default query
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rec.Code)
+	}
+}
+
+func TestHandleListProbesWithInvalidProviderID(t *testing.T) {
+	handler, _ := setupTestHandler(t)
+
+	req := httptest.NewRequest("GET", "/api/probes?provider_id=invalid", nil)
+	rec := httptest.NewRecorder()
+
+	handler.handleListProbes(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestNewHandler(t *testing.T) {
+	handler, _ := setupTestHandler(t)
+
+	if handler == nil {
+		t.Fatal("expected handler to be created")
+	}
+	if handler.store == nil {
+		t.Error("expected store to be set")
+	}
+	if handler.engine == nil {
+		t.Error("expected engine to be set")
+	}
+	if handler.config == nil {
+		t.Error("expected config to be set")
+	}
+	if handler.logger == nil {
+		t.Error("expected logger to be set")
+	}
+}
+
+func TestWriteJSON(t *testing.T) {
+	rec := httptest.NewRecorder()
+
+	writeJSON(rec, http.StatusOK, map[string]string{"test": "value"})
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rec.Code)
+	}
+
+	contentType := rec.Header().Get("Content-Type")
+	if contentType != "application/json" {
+		t.Errorf("expected Content-Type 'application/json', got %q", contentType)
+	}
+
+	var resp map[string]string
+	json.NewDecoder(rec.Body).Decode(&resp)
+	if resp["test"] != "value" {
+		t.Errorf("expected test='value', got %q", resp["test"])
+	}
+}
+
+func TestReadJSON(t *testing.T) {
+	body := `{"name": "test"}`
+	req := httptest.NewRequest("POST", "/", bytes.NewBufferString(body))
+
+	var result map[string]string
+	err := readJSON(req, &result)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result["name"] != "test" {
+		t.Errorf("expected name='test', got %q", result["name"])
+	}
+}
+
+func TestReadJSONInvalid(t *testing.T) {
+	req := httptest.NewRequest("POST", "/", bytes.NewBufferString("invalid"))
+
+	var result map[string]string
+	err := readJSON(req, &result)
+
+	if err == nil {
+		t.Error("expected error for invalid JSON")
+	}
+}

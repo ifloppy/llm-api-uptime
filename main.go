@@ -8,6 +8,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/joho/godotenv"
+
 	"llm-api-uptime/internal/config"
 	"llm-api-uptime/internal/probe"
 	"llm-api-uptime/internal/store"
@@ -18,6 +20,8 @@ import (
 func main() {
 	mode := flag.String("mode", "tui", "Run mode: tui or web")
 	flag.Parse()
+
+	godotenv.Load()
 
 	cfg := config.Load()
 
@@ -61,10 +65,7 @@ func main() {
 			os.Exit(1)
 		}
 	case "web":
-		if !cfg.WebEnabled {
-			logger.Error("web mode requires WEB_ENABLED=true")
-			os.Exit(1)
-		}
+		cfg.WebEnabled = true
 		srv := web.NewServer(db, engine, cfg, logger)
 		logger.Info("starting web server", "addr", cfg.WebAddr())
 		if err := srv.Start(); err != nil {
