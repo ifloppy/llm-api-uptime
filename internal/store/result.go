@@ -48,19 +48,34 @@ func (s *Store) GetLastProbeTime() (*time.Time, error) {
 	return nil, nil
 }
 
-func (s *Store) GetResultsForProbe(probeID int64, limit int) ([]model.Result, error) {
+func (s *Store) GetResultsForProbe(probeID int64, limit int, statusFilter string) ([]model.Result, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	rows, err := s.db.Query(`
-		SELECT id, probe_id, status, status_code, latency_ms, 
+
+	query := `
+		SELECT id, probe_id, status, status_code, latency_ms,
 		       prompt_tokens, completion_tokens, total_tokens, tps,
 		       error_code, error_message, request_id, raw_error, created_at
 		FROM results
 		WHERE probe_id = ?
+	`
+	args := []interface{}{probeID}
+
+	if statusFilter == "failed" {
+		query += ` AND status != 'success'`
+	} else if statusFilter != "" {
+		query += ` AND status = ?`
+		args = append(args, statusFilter)
+	}
+
+	query += `
 		ORDER BY created_at DESC
 		LIMIT ?
-	`, probeID, limit)
+	`
+	args = append(args, limit)
+
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("get results: %w", err)
 	}
@@ -90,7 +105,8 @@ func (s *Store) GetStats(query model.StatsQuery) ([]model.ProviderStats, error) 
 	}
 
 	rows, err := s.db.Query(`
-		SELECT 
+		SELECT
+			p.id as probe_id,
 			pr.name as provider_name,
 			p.model,
 			COUNT(*) as total_probes,
@@ -105,7 +121,7 @@ func (s *Store) GetStats(query model.StatsQuery) ([]model.ProviderStats, error) 
 		JOIN probes p ON r.probe_id = p.id
 		JOIN providers pr ON p.provider_id = pr.id
 		WHERE r.created_at >= ?
-		GROUP BY pr.name, p.model
+		GROUP BY p.id, pr.name, p.model
 		ORDER BY pr.name, p.model
 	`, since)
 	if err != nil {
@@ -122,7 +138,7 @@ func (s *Store) GetStats(query model.StatsQuery) ([]model.ProviderStats, error) 
 		var avgLatency sql.NullFloat64
 		var avgTPS sql.NullFloat64
 
-		err := rows.Scan(&providerName, &ms.Model, &ms.TotalProbes, &ms.SuccessCount,
+		err := rows.Scan(&ms.ProbeID, &providerName, &ms.Model, &ms.TotalProbes, &ms.SuccessCount,
 			&ms.ErrorCount, &ms.TimeoutCount, &ms.EmptyRespCount, &ms.EmptyContentCount,
 			&avgLatency, &avgTPS)
 		if err != nil {

@@ -352,7 +352,9 @@ func (h *Handler) handleGetProbeResults(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	results, err := h.store.GetResultsForProbe(id, limit)
+	statusFilter := r.URL.Query().Get("status")
+
+	results, err := h.store.GetResultsForProbe(id, limit, statusFilter)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return

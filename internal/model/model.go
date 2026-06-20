@@ -71,6 +71,7 @@ type StatsQuery struct {
 }
 
 type ModelStats struct {
+	ProbeID           int64     `json:"probe_id"`
 	ProviderName      string    `json:"provider_name"`
 	Model             string    `json:"model"`
 	TotalProbes       int       `json:"total_probes"`

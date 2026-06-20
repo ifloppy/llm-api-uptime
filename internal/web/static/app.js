@@ -546,22 +546,31 @@ async function exportCSV() {
     }
 }
 
-async function showProbeDetails(probeId, providerName, model) {
+async function showProbeDetails(probeId, providerName, model, statusFilter = '') {
     if (!probeId) {
         showToast('No probe ID available', 'error');
         return;
     }
-    
+
     try {
-        const results = await apiCall(`/probes/${probeId}/results?limit=50`);
-        
+        let url = `/probes/${probeId}/results?limit=50`;
+        if (statusFilter) {
+            url += `&status=${encodeURIComponent(statusFilter)}`;
+        }
+        const results = await apiCall(url);
+
         document.getElementById('modalTitle').textContent = `${providerName} - ${model}`;
-        
-        let content = '<div style="max-height: 400px; overflow-y: auto;">';
+
+        let content = '<div>';
+        content += '<div style="margin-bottom: 12px; display: flex; gap: 8px;">';
+        content += `<button class="btn btn-sm ${statusFilter === '' ? 'btn-primary' : 'btn-secondary'}" onclick="showProbeDetails(${probeId}, '${escapeHtml(providerName)}', '${escapeHtml(model)}', '')">All</button>`;
+        content += `<button class="btn btn-sm ${statusFilter === 'failed' ? 'btn-danger' : 'btn-secondary'}" onclick="showProbeDetails(${probeId}, '${escapeHtml(providerName)}', '${escapeHtml(model)}', 'failed')">Failed Only</button>`;
+        content += '</div>';
+        content += '<div style="max-height: 400px; overflow-y: auto;">';
         content += '<table class="data-table"><thead><tr>';
         content += '<th>Time</th><th>Status</th><th>Latency</th><th>TPS</th><th>Request ID</th><th>Error</th>';
         content += '</tr></thead><tbody>';
-        
+
         if (results && results.length > 0) {
             results.forEach(r => {
                 const statusClass = r.status === 'success' ? 'rate-good' : 'rate-bad';
@@ -578,9 +587,9 @@ async function showProbeDetails(probeId, providerName, model) {
         } else {
             content += '<tr><td colspan="6" class="empty-state">No results found</td></tr>';
         }
-        
-        content += '</tbody></table></div>';
-        
+
+        content += '</tbody></table></div></div>';
+
         document.getElementById('modalBody').innerHTML = content;
         showModal();
     } catch (error) {

@@ -413,7 +413,7 @@ func TestCleanup(t *testing.T) {
 		t.Fatalf("failed to cleanup: %v", err)
 	}
 
-	results, _ := store.GetResultsForProbe(probe.ID, 50)
+	results, _ := store.GetResultsForProbe(probe.ID, 50, "")
 	if len(results) != 1 {
 		t.Errorf("expected 1 result after cleanup, got %d", len(results))
 	}
