@@ -280,7 +280,7 @@ body {
     background-color: var(--bg-card);
     border-radius: var(--radius);
     width: 100%;
-    max-width: 500px;
+    max-width: 90vw;
     max-height: 90vh;
     overflow-y: auto;
 }

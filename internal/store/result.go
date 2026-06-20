@@ -30,6 +30,14 @@ func (s *Store) ClearResults() error {
 	return err
 }
 
+func (s *Store) DeleteResult(id int64) error {
+	_, err := s.db.Exec("DELETE FROM results WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("delete result: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) GetResultCount() (int, error) {
 	var count int
 	err := s.db.QueryRow("SELECT COUNT(*) FROM results").Scan(&count)

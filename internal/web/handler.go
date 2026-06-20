@@ -44,6 +44,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/stats", h.handleClearStats)
 	mux.HandleFunc("GET /api/probes/{id}/results", h.handleGetProbeResults)
 	mux.HandleFunc("GET /api/export/csv", h.handleExportCSV)
+	mux.HandleFunc("DELETE /api/results/{id}", h.handleDeleteResult)
 	mux.HandleFunc("POST /api/probe/trigger", h.handleTriggerProbe)
 	mux.HandleFunc("POST /api/login", h.handleLogin)
 }
@@ -334,6 +335,22 @@ func (h *Handler) handleClearStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "cleared"})
+}
+
+func (h *Handler) handleDeleteResult(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid id"})
+		return
+	}
+
+	if err := h.store.DeleteResult(id); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 func (h *Handler) handleGetProbeResults(w http.ResponseWriter, r *http.Request) {

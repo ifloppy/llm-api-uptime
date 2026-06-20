@@ -566,9 +566,9 @@ async function showProbeDetails(probeId, providerName, model, statusFilter = '')
         content += `<button class="btn btn-sm ${statusFilter === '' ? 'btn-primary' : 'btn-secondary'}" onclick="showProbeDetails(${probeId}, '${escapeHtml(providerName)}', '${escapeHtml(model)}', '')">All</button>`;
         content += `<button class="btn btn-sm ${statusFilter === 'failed' ? 'btn-danger' : 'btn-secondary'}" onclick="showProbeDetails(${probeId}, '${escapeHtml(providerName)}', '${escapeHtml(model)}', 'failed')">Failed Only</button>`;
         content += '</div>';
-        content += '<div style="max-height: 400px; overflow-y: auto;">';
+        content += '<div style="max-height: 65vh; overflow-y: auto;">';
         content += '<table class="data-table"><thead><tr>';
-        content += '<th>Time</th><th>Status</th><th>Latency</th><th>TPS</th><th>Request ID</th><th>Error</th>';
+        content += '<th>Time</th><th>Status</th><th>Latency</th><th>TPS</th><th>Request ID</th><th>Error</th><th>Action</th>';
         content += '</tr></thead><tbody>';
 
         if (results && results.length > 0) {
@@ -580,12 +580,13 @@ async function showProbeDetails(probeId, providerName, model, statusFilter = '')
                     <td><span class="${statusClass}">${r.status}</span></td>
                     <td>${r.latency_ms}ms</td>
                     <td>${r.tps.toFixed(2)}</td>
-                    <td>${r.request_id || '-'}</td>
-                    <td>${r.error_message || '-'}</td>
+                    <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis">${r.request_id || '-'}</td>
+                    <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${r.error_message || '-'}</td>
+                    <td><button class="btn btn-sm btn-danger" onclick="deleteResult(${r.id}, ${probeId}, '${escapeHtml(providerName)}', '${escapeHtml(model)}', '${statusFilter}')">Delete</button></td>
                 </tr>`;
             });
         } else {
-            content += '<tr><td colspan="6" class="empty-state">No results found</td></tr>';
+            content += '<tr><td colspan="7" class="empty-state">No results found</td></tr>';
         }
 
         content += '</tbody></table></div></div>';
@@ -594,6 +595,21 @@ async function showProbeDetails(probeId, providerName, model, statusFilter = '')
         showModal();
     } catch (error) {
         showToast('Failed to load probe details', 'error');
+    }
+}
+
+async function deleteResult(resultId, probeId, providerName, model, statusFilter) {
+    if (!confirm('Delete this record? This cannot be undone.')) {
+        return;
+    }
+    
+    try {
+        await apiCall(`/results/${resultId}`, 'DELETE');
+        showToast('Record deleted', 'success');
+        // Refresh the details view
+        showProbeDetails(probeId, providerName, model, statusFilter);
+    } catch (error) {
+        showToast('Failed to delete record', 'error');
     }
 }
 
