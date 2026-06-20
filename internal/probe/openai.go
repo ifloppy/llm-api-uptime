@@ -182,6 +182,19 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 	}
 
 	if len(openAIResp.Choices) == 0 {
+		// Empty choices is expected in SSE final chunk.
+		// If we have usage data, the API processed the request successfully.
+		if openAIResp.Usage.TotalTokens > 0 {
+			return &model.Result{
+				Status:           model.StatusSuccess,
+				StatusCode:       resp.StatusCode,
+				LatencyMs:        latency,
+				PromptTokens:     openAIResp.Usage.PromptTokens,
+				CompletionTokens: openAIResp.Usage.CompletionTokens,
+				TotalTokens:      openAIResp.Usage.TotalTokens,
+				RequestID:        requestID,
+			}
+		}
 		return &model.Result{
 			Status:       model.StatusEmptyContent,
 			StatusCode:   resp.StatusCode,

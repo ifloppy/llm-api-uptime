@@ -160,11 +160,12 @@ func TestProbeOpenAIEmptyChoices(t *testing.T) {
 
 	result := probeOpenAI(context.Background(), server.URL, "test-key", "test", "gpt-4", 2)
 
-	if result.Status != model.StatusEmptyContent {
-		t.Errorf("Status = %q, want empty_content", result.Status)
+	// Empty choices with usage data is treated as success (e.g. SSE final chunk)
+	if result.Status != model.StatusSuccess {
+		t.Errorf("Status = %q, want success", result.Status)
 	}
-	if result.ErrorMessage != "empty choices in response" {
-		t.Errorf("ErrorMessage = %q, want 'empty choices in response'", result.ErrorMessage)
+	if result.TotalTokens != 10 {
+		t.Errorf("TotalTokens = %d, want 10", result.TotalTokens)
 	}
 }
 
@@ -382,8 +383,12 @@ func TestProbeOpenAISSEWithEmptyChoices(t *testing.T) {
 
 	result := probeOpenAI(context.Background(), server.URL, "test-key", "test", "gpt-4", 64)
 
-	if result.Status != model.StatusEmptyContent {
-		t.Errorf("Status = %q, want empty_content", result.Status)
+	// Empty choices with usage data should be treated as success
+	if result.Status != model.StatusSuccess {
+		t.Errorf("Status = %q, want success", result.Status)
+	}
+	if result.PromptTokens != 9 {
+		t.Errorf("PromptTokens = %d, want 9", result.PromptTokens)
 	}
 }
 
