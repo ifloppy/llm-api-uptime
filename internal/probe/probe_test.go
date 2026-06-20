@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -427,5 +428,228 @@ func TestParseSSEToJSON(t *testing.T) {
 				t.Errorf("parseSSEToJSON() = %q, want %q", string(result), tt.expected)
 			}
 		})
+	}
+}
+
+func TestProbeOpenAIEmptyChoicesNoUsage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"id":      "chatcmpl-123",
+			"choices": []interface{}{},
+		})
+	}))
+	defer server.Close()
+
+	result := probeOpenAI(context.Background(), server.URL, "test-key", "test", "gpt-4", 2)
+
+	if result.Status != model.StatusEmptyContent {
+		t.Errorf("Status = %q, want empty_content", result.Status)
+	}
+	if result.ErrorMessage != "empty choices in response" {
+		t.Errorf("ErrorMessage = %q, want 'empty choices in response'", result.ErrorMessage)
+	}
+}
+
+func TestProbeOpenAIEmptyContentWithReasoning(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"id": "chatcmpl-123",
+			"choices": []map[string]interface{}{
+				{
+					"message": map[string]string{
+						"content":           "",
+						"reasoning_content": "Let me think about this...",
+					},
+				},
+			},
+			"usage": map[string]interface{}{
+				"prompt_tokens":     10,
+				"completion_tokens": 20,
+				"total_tokens":      30,
+			},
+		})
+	}))
+	defer server.Close()
+
+	result := probeOpenAI(context.Background(), server.URL, "test-key", "test", "deepseek-r1", 2)
+
+	if result.Status != model.StatusSuccess {
+		t.Errorf("Status = %q, want success", result.Status)
+	}
+	if result.TotalTokens != 30 {
+		t.Errorf("TotalTokens = %d, want 30", result.TotalTokens)
+	}
+}
+
+func TestProbeOpenAIEmptyContentNoUsageNoReasoning(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"id": "chatcmpl-123",
+			"choices": []map[string]interface{}{
+				{"message": map[string]string{"content": "   "}},
+			},
+		})
+	}))
+	defer server.Close()
+
+	result := probeOpenAI(context.Background(), server.URL, "test-key", "test", "gpt-4", 2)
+
+	if result.Status != model.StatusEmptyContent {
+		t.Errorf("Status = %q, want empty_content", result.Status)
+	}
+	if result.ErrorMessage != "empty content in response" {
+		t.Errorf("ErrorMessage = %q, want 'empty content in response'", result.ErrorMessage)
+	}
+}
+
+func TestProbeOpenAIHTMLResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte("<html><body><h1>Access Denied</h1></body></html>"))
+	}))
+	defer server.Close()
+
+	result := probeOpenAI(context.Background(), server.URL, "test-key", "test", "gpt-4", 2)
+
+	if result.Status != model.StatusError {
+		t.Errorf("Status = %q, want error", result.Status)
+	}
+	if !strings.Contains(result.RawError, "<html>") {
+		t.Errorf("RawError should contain HTML, got: %q", result.RawError)
+	}
+	if result.StatusCode != 403 {
+		t.Errorf("StatusCode = %d, want 403", result.StatusCode)
+	}
+}
+
+func TestProbeAnthropicEmptyContent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"id":      "msg-123",
+			"content": []interface{}{},
+		})
+	}))
+	defer server.Close()
+
+	result := probeAnthropic(context.Background(), server.URL, "test-key", "test", "claude-3", 2)
+
+	if result.Status != model.StatusEmptyContent {
+		t.Errorf("Status = %q, want empty_content", result.Status)
+	}
+	if result.ErrorMessage != "empty content in response" {
+		t.Errorf("ErrorMessage = %q, want 'empty content in response'", result.ErrorMessage)
+	}
+}
+
+func TestProbeAnthropicWithTokens(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"id": "msg-123",
+			"content": []map[string]string{
+				{"text": "Hello!", "type": "text"},
+			},
+			"usage": map[string]interface{}{
+				"input_tokens":  10,
+				"output_tokens": 5,
+			},
+		})
+	}))
+	defer server.Close()
+
+	result := probeAnthropic(context.Background(), server.URL, "test-key", "test", "claude-3", 2)
+
+	if result.Status != model.StatusSuccess {
+		t.Errorf("Status = %q, want success", result.Status)
+	}
+	if result.PromptTokens != 10 {
+		t.Errorf("PromptTokens = %d, want 10", result.PromptTokens)
+	}
+	if result.CompletionTokens != 5 {
+		t.Errorf("CompletionTokens = %d, want 5", result.CompletionTokens)
+	}
+	if result.TotalTokens != 15 {
+		t.Errorf("TotalTokens = %d, want 15", result.TotalTokens)
+	}
+	if result.TPS <= 0 {
+		t.Error("expected positive TPS")
+	}
+}
+
+func TestProbeOpenAISSEMultiChunkAccumulation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		// Multiple delta chunks that should be accumulated
+		w.Write([]byte("data: {\"id\":\"chatcmpl-123\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hello\"},\"finish_reason\":null}]}\n\n"))
+		w.Write([]byte("data: {\"id\":\"chatcmpl-123\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" world\"},\"finish_reason\":null}]}\n\n"))
+		w.Write([]byte("data: {\"id\":\"chatcmpl-123\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"!\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":3,\"total_tokens\":13}}\n\n"))
+		w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	result := probeOpenAI(context.Background(), server.URL, "test-key", "test", "gpt-4", 64)
+
+	if result.Status != model.StatusSuccess {
+		t.Errorf("Status = %q, want success", result.Status)
+	}
+	if result.PromptTokens != 10 {
+		t.Errorf("PromptTokens = %d, want 10", result.PromptTokens)
+	}
+	if result.CompletionTokens != 3 {
+		t.Errorf("CompletionTokens = %d, want 3", result.CompletionTokens)
+	}
+	if result.TotalTokens != 13 {
+		t.Errorf("TotalTokens = %d, want 13", result.TotalTokens)
+	}
+}
+
+func TestParseSSEToJSONMultiChunkAccumulation(t *testing.T) {
+	input := []byte("data: {\"id\":\"chatcmpl-123\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hello\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-123\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" world\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-123\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"!\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":3,\"total_tokens\":13}}\n\ndata: [DONE]\n\n")
+
+	result := parseSSEToJSON(input)
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(result, &parsed); err != nil {
+		t.Fatalf("failed to parse result JSON: %v", err)
+	}
+
+	choices, ok := parsed["choices"].([]interface{})
+	if !ok || len(choices) == 0 {
+		t.Fatal("expected choices in result")
+	}
+
+	choice, ok := choices[0].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected choice to be an object")
+	}
+
+	message, ok := choice["message"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected message in choice")
+	}
+
+	content, ok := message["content"].(string)
+	if !ok {
+		t.Fatal("expected content in message")
+	}
+
+	if content != "Hello world!" {
+		t.Errorf("content = %q, want %q", content, "Hello world!")
+	}
+
+	// Verify delta was removed
+	if _, exists := choice["delta"]; exists {
+		t.Error("expected delta to be removed from merged result")
+	}
+
+	// Verify usage is preserved
+	usage, ok := parsed["usage"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected usage in result")
+	}
+	totalTokens, ok := usage["total_tokens"].(float64)
+	if !ok || int(totalTokens) != 13 {
+		t.Errorf("total_tokens = %v, want 13", usage["total_tokens"])
 	}
 }
