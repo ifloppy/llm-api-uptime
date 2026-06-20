@@ -113,6 +113,8 @@ func probeAnthropic(ctx context.Context, baseURL, apiKey, providerName, modelID 
 		}
 	}
 
+	respBody = stripBOM(respBody)
+
 	var anthropicResp anthropicResponse
 	if err := json.Unmarshal(respBody, &anthropicResp); err != nil {
 		return &model.Result{

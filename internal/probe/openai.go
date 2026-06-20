@@ -133,6 +133,8 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 		respBody = parseSSEToJSON(respBody)
 	}
 
+	respBody = stripBOM(respBody)
+
 	var openAIResp openAIResponse
 	if err := json.Unmarshal(respBody, &openAIResp); err != nil {
 		return &model.Result{

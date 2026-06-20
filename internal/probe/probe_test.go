@@ -604,6 +604,251 @@ func TestProbeOpenAISSEMultiChunkAccumulation(t *testing.T) {
 	}
 }
 
+func TestStripBOM(t *testing.T) {
+	tests := []struct {
+		name  string
+		input []byte
+		want  []byte
+	}{
+		{
+			name:  "normal JSON without BOM",
+			input: []byte(`{"id":"chatcmpl-123"}`),
+			want:  []byte(`{"id":"chatcmpl-123"}`),
+		},
+		{
+			name:  "JSON with UTF-8 BOM",
+			input: []byte{0xEF, 0xBB, 0xBF, '{', '"', 'i', 'd', '"', ':', '"', 'c', 'm', 'p', 'l', '-', '1', '2', '3', '"', '}'},
+			want:  []byte(`{"id":"cmpl-123"}`),
+		},
+		{
+			name:  "empty input",
+			input: []byte{},
+			want:  []byte{},
+		},
+		{
+			name:  "BOM only (no content after)",
+			input: []byte{0xEF, 0xBB, 0xBF},
+			want:  []byte{},
+		},
+		{
+			name:  "short input less than 3 bytes",
+			input: []byte{0xEF, 0xBB},
+			want:  []byte{0xEF, 0xBB},
+		},
+		{
+			name:  "similar bytes but not BOM",
+			input: []byte{0xEF, 0xBB, 0x00},
+			want:  []byte{0xEF, 0xBB, 0x00},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := stripBOM(tt.input)
+			if len(got) == 0 && len(tt.want) == 0 {
+				return // both empty, ok
+			}
+			if string(got) != string(tt.want) {
+				t.Errorf("stripBOM() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestProbeOpenAIWithBOM(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("x-request-id", "req-bom-123")
+		w.Header().Set("Content-Type", "application/json")
+		// Write BOM prefix followed by valid JSON
+		w.Write([]byte{0xEF, 0xBB, 0xBF})
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"id": "chatcmpl-bom",
+			"choices": []map[string]interface{}{
+				{"message": map[string]string{"content": "Hello from BOM API"}},
+			},
+			"usage": map[string]interface{}{
+				"prompt_tokens":     10,
+				"completion_tokens": 5,
+				"total_tokens":      15,
+			},
+		})
+	}))
+	defer server.Close()
+
+	result := probeOpenAI(context.Background(), server.URL, "test-key", "test", "gpt-4", 2)
+
+	if result.Status != model.StatusSuccess {
+		t.Errorf("Status = %q, want success", result.Status)
+	}
+	if result.RequestID != "req-bom-123" {
+		t.Errorf("RequestID = %q, want req-bom-123", result.RequestID)
+	}
+	if result.TotalTokens != 15 {
+		t.Errorf("TotalTokens = %d, want 15", result.TotalTokens)
+	}
+}
+
+func TestProbeAnthropicBOM(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("x-request-id", "req-bom-anth")
+		w.Header().Set("Content-Type", "application/json")
+		// Write BOM prefix followed by valid JSON
+		w.Write([]byte{0xEF, 0xBB, 0xBF})
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"id": "msg-bom",
+			"content": []map[string]string{
+				{"text": "Hello from BOM Anthropic", "type": "text"},
+			},
+			"usage": map[string]interface{}{
+				"input_tokens":  10,
+				"output_tokens": 5,
+			},
+		})
+	}))
+	defer server.Close()
+
+	result := probeAnthropic(context.Background(), server.URL, "test-key", "test", "claude-3", 2)
+
+	if result.Status != model.StatusSuccess {
+		t.Errorf("Status = %q, want success", result.Status)
+	}
+	if result.RequestID != "req-bom-anth" {
+		t.Errorf("RequestID = %q, want req-bom-anth", result.RequestID)
+	}
+	if result.TotalTokens != 15 {
+		t.Errorf("TotalTokens = %d, want 15", result.TotalTokens)
+	}
+}
+
+func TestProbeOpenAIEmptyObject(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+
+	result := probeOpenAI(context.Background(), server.URL, "test-key", "test", "gpt-4", 2)
+
+	if result.Status != model.StatusEmptyContent {
+		t.Errorf("Status = %q, want empty_content", result.Status)
+	}
+	if result.ErrorMessage != "empty choices in response" {
+		t.Errorf("ErrorMessage = %q, want 'empty choices in response'", result.ErrorMessage)
+	}
+}
+
+func TestProbeOpenAIRateLimit(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("x-request-id", "req-rl-123")
+		w.WriteHeader(http.StatusTooManyRequests)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": map[string]interface{}{
+				"code":    "rate_limit_exceeded",
+				"message": "Rate limit reached for requests",
+				"type":    "requests",
+			},
+		})
+	}))
+	defer server.Close()
+
+	result := probeOpenAI(context.Background(), server.URL, "test-key", "test", "gpt-4", 2)
+
+	if result.Status != model.StatusError {
+		t.Errorf("Status = %q, want error", result.Status)
+	}
+	if result.StatusCode != 429 {
+		t.Errorf("StatusCode = %d, want 429", result.StatusCode)
+	}
+	if result.ErrorCode != "rate_limit_exceeded" {
+		t.Errorf("ErrorCode = %q, want rate_limit_exceeded", result.ErrorCode)
+	}
+	if result.ErrorMessage != "Rate limit reached for requests" {
+		t.Errorf("ErrorMessage = %q, want 'Rate limit reached for requests'", result.ErrorMessage)
+	}
+	if result.RequestID != "req-rl-123" {
+		t.Errorf("RequestID = %q, want req-rl-123", result.RequestID)
+	}
+}
+
+func TestProbeOpenAIRedirectToHTML(t *testing.T) {
+	// Server that serves an HTML error page (simulating redirect to error page)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		w.Write([]byte(`<!DOCTYPE html><html><head><title>Error</title></head><body><h1>Service Unavailable</h1><p>The server is temporarily unavailable.</p></body></html>`))
+	}))
+	defer server.Close()
+
+	result := probeOpenAI(context.Background(), server.URL, "test-key", "test", "gpt-4", 2)
+
+	if result.Status != model.StatusError {
+		t.Errorf("Status = %q, want error", result.Status)
+	}
+	if result.StatusCode != 503 {
+		t.Errorf("StatusCode = %d, want 503", result.StatusCode)
+	}
+	if !strings.Contains(result.RawError, "<html>") {
+		t.Errorf("RawError should contain HTML, got: %q", result.RawError)
+	}
+}
+
+func TestProbeAnthropicEmptyTextContent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"id": "msg-empty-text",
+			"content": []map[string]string{
+				{"text": "", "type": "text"},
+			},
+		})
+	}))
+	defer server.Close()
+
+	result := probeAnthropic(context.Background(), server.URL, "test-key", "test", "claude-3", 2)
+
+	if result.Status != model.StatusEmptyContent {
+		t.Errorf("Status = %q, want empty_content", result.Status)
+	}
+	if result.ErrorMessage != "empty content text in response" {
+		t.Errorf("ErrorMessage = %q, want 'empty content text in response'", result.ErrorMessage)
+	}
+}
+
+func TestFetchModelListWithBOM(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// Write BOM prefix followed by valid JSON
+		w.Write([]byte{0xEF, 0xBB, 0xBF})
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"data": []map[string]string{
+				{"id": "gpt-4"},
+				{"id": "gpt-3.5-turbo"},
+			},
+		})
+	}))
+	defer server.Close()
+
+	provider := model.Provider{
+		BaseURL: server.URL,
+		APIKey:  "test-key",
+		APIType: model.APITypeOpenAI,
+	}
+
+	models, err := FetchModelList(context.Background(), provider)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(models) != 2 {
+		t.Fatalf("expected 2 models, got %d", len(models))
+	}
+	if models[0] != "gpt-4" {
+		t.Errorf("first model = %q, want gpt-4", models[0])
+	}
+	if models[1] != "gpt-3.5-turbo" {
+		t.Errorf("second model = %q, want gpt-3.5-turbo", models[1])
+	}
+}
+
 func TestParseSSEToJSONMultiChunkAccumulation(t *testing.T) {
 	input := []byte("data: {\"id\":\"chatcmpl-123\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hello\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-123\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" world\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-123\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"!\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":3,\"total_tokens\":13}}\n\ndata: [DONE]\n\n")
 

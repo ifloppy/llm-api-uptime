@@ -55,6 +55,8 @@ func FetchModelList(ctx context.Context, provider model.Provider) ([]string, err
 		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
 	}
 
+	body = stripBOM(body)
+
 	var modelResp modelListResponse
 	if err := json.Unmarshal(body, &modelResp); err != nil {
 		return nil, fmt.Errorf("parse response: %w", err)
