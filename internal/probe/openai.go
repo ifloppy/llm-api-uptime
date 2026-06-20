@@ -222,24 +222,90 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 	}
 }
 
-// parseSSEToJSON extracts JSON from a Server-Sent Events stream.
-// Some proxies return SSE format (data: {...}) even with stream: false.
+// parseSSEToJSON merges all SSE data chunks into a single JSON response.
+// SSE format: multiple "data: {...}" lines, each is a partial JSON chunk.
+// We merge delta content and keep the latest usage/finish info.
 func parseSSEToJSON(body []byte) []byte {
 	scanner := bufio.NewScanner(bytes.NewReader(body))
-	var lastData strings.Builder
+	
+	// Accumulated content from all delta chunks
+	var fullContent strings.Builder
+	
+	// Track if we found any content delta
+	hasContent := false
+	
+	// The last complete chunk for non-content fields (usage, id, model, etc.)
+	var lastFullChunk map[string]interface{}
+	
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.HasPrefix(line, "data: ") {
-			data := strings.TrimPrefix(line, "data: ")
-			if data == "[DONE]" {
-				continue
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		
+		data := strings.TrimPrefix(line, "data: ")
+		if data == "[DONE]" {
+			continue
+		}
+		
+		var chunk map[string]interface{}
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			continue
+		}
+		
+		lastFullChunk = chunk
+		
+		// Extract delta content from choices
+		if choices, ok := chunk["choices"].([]interface{}); ok && len(choices) > 0 {
+			if choice, ok := choices[0].(map[string]interface{}); ok {
+				if delta, ok := choice["delta"].(map[string]interface{}); ok {
+					if content, ok := delta["content"].(string); ok && content != "" {
+						fullContent.WriteString(content)
+						hasContent = true
+					}
+				}
 			}
-			lastData.Reset()
-			lastData.WriteString(data)
 		}
 	}
-	if lastData.Len() > 0 {
-		return []byte(lastData.String())
+	
+	if !hasContent {
+		// No content accumulated, return the last chunk as-is
+		if lastFullChunk != nil {
+			jsonBytes, _ := json.Marshal(lastFullChunk)
+			return jsonBytes
+		}
+		return body
 	}
+	
+	// Build merged response: take the last chunk and inject the accumulated content
+	if lastFullChunk != nil {
+		if choices, ok := lastFullChunk["choices"].([]interface{}); ok && len(choices) > 0 {
+			if choice, ok := choices[0].(map[string]interface{}); ok {
+				message := map[string]interface{}{
+					"role":    "assistant",
+					"content": fullContent.String(),
+				}
+				// Remove delta, add message
+				delete(choice, "delta")
+				choice["message"] = message
+				lastFullChunk["choices"] = []interface{}{choice}
+			}
+		} else {
+			// choices is empty in the last chunk, create a proper choice
+			lastFullChunk["choices"] = []interface{}{
+				map[string]interface{}{
+					"index": 0,
+					"message": map[string]interface{}{
+						"role":    "assistant",
+						"content": fullContent.String(),
+					},
+					"finish_reason": "stop",
+				},
+			}
+		}
+		jsonBytes, _ := json.Marshal(lastFullChunk)
+		return jsonBytes
+	}
+	
 	return body
 }
