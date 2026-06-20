@@ -1,6 +1,7 @@
 package probe
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -25,14 +26,22 @@ type openAIMessage struct {
 	Content string `json:"content"`
 }
 
+type openAIChoice struct {
+	Index   int `json:"index"`
+	Message struct {
+		Content          string `json:"content"`
+		ReasoningContent string `json:"reasoning_content"`
+	} `json:"message"`
+	Delta *struct {
+		Content string `json:"content"`
+	} `json:"delta,omitempty"`
+	FinishReason *string `json:"finish_reason"`
+}
+
 type openAIResponse struct {
 	ID      string `json:"id"`
-	Choices []struct {
-		Message struct {
-			Content           string `json:"content"`
-			ReasoningContent  string `json:"reasoning_content"`
-		} `json:"message"`
-	} `json:"choices,omitempty"`
+	Object  string `json:"object"`
+	Choices []openAIChoice `json:"choices,omitempty"`
 	Usage struct {
 		PromptTokens     int `json:"prompt_tokens"`
 		CompletionTokens int `json:"completion_tokens"`
@@ -44,6 +53,7 @@ type openAIResponse struct {
 		Type    string `json:"type"`
 	} `json:"error,omitempty"`
 }
+
 
 func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID string, maxTokens int) *model.Result {
 	start := time.Now()
@@ -118,6 +128,11 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 		}
 	}
 
+	// Handle SSE format: some proxies return text/event-stream even with stream=false
+	if strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
+		respBody = parseSSEToJSON(respBody)
+	}
+
 	var openAIResp openAIResponse
 	if err := json.Unmarshal(respBody, &openAIResp); err != nil {
 		return &model.Result{
@@ -126,6 +141,13 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 			LatencyMs:    latency,
 			ErrorMessage: fmt.Sprintf("parse response: %v", err),
 			RawError:     string(respBody),
+		}
+	}
+
+	// Map SSE delta format to message: SSE uses "delta" instead of "message"
+	for i := range openAIResp.Choices {
+		if openAIResp.Choices[i].Message.Content == "" && openAIResp.Choices[i].Delta != nil {
+			openAIResp.Choices[i].Message.Content = openAIResp.Choices[i].Delta.Content
 		}
 	}
 
@@ -198,4 +220,26 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 		TPS:              tps,
 		RequestID:        requestID,
 	}
+}
+
+// parseSSEToJSON extracts JSON from a Server-Sent Events stream.
+// Some proxies return SSE format (data: {...}) even with stream: false.
+func parseSSEToJSON(body []byte) []byte {
+	scanner := bufio.NewScanner(bytes.NewReader(body))
+	var lastData strings.Builder
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "data: ") {
+			data := strings.TrimPrefix(line, "data: ")
+			if data == "[DONE]" {
+				continue
+			}
+			lastData.Reset()
+			lastData.WriteString(data)
+		}
+	}
+	if lastData.Len() > 0 {
+		return []byte(lastData.String())
+	}
+	return body
 }

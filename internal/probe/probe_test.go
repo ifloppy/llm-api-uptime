@@ -349,3 +349,78 @@ func TestFetchModelListError(t *testing.T) {
 		t.Error("expected error for unauthorized request")
 	}
 }
+
+func TestProbeOpenAISSEFormat(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("x-oneapi-request-id", "req-sse-123")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("data: {\"id\":\"chatcmpl-123\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"gpt-4\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hello\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}\n\ndata: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	result := probeOpenAI(context.Background(), server.URL, "test-key", "test", "gpt-4", 64)
+
+	if result.Status != model.StatusSuccess {
+		t.Errorf("Status = %q, want success", result.Status)
+	}
+	if result.PromptTokens != 10 {
+		t.Errorf("PromptTokens = %d, want 10", result.PromptTokens)
+	}
+	if result.CompletionTokens != 5 {
+		t.Errorf("CompletionTokens = %d, want 5", result.CompletionTokens)
+	}
+}
+
+func TestProbeOpenAISSEWithEmptyChoices(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("data: {\"id\":\"\",\"object\":\"chat.completion.chunk\",\"choices\":[],\"usage\":{\"prompt_tokens\":9,\"completion_tokens\":0,\"total_tokens\":9}}\n\ndata: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	result := probeOpenAI(context.Background(), server.URL, "test-key", "test", "gpt-4", 64)
+
+	if result.Status != model.StatusEmptyContent {
+		t.Errorf("Status = %q, want empty_content", result.Status)
+	}
+}
+
+func TestParseSSEToJSON(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []byte
+		expected string
+	}{
+		{
+			name:     "normal sse",
+			input:    []byte("data: {\"key\":\"value\"}\n\ndata: [DONE]\n\n"),
+			expected: "{\"key\":\"value\"}",
+		},
+		{
+			name:     "normal json",
+			input:    []byte("{\"key\":\"value\"}"),
+			expected: "{\"key\":\"value\"}",
+		},
+		{
+			name:     "multi line sse",
+			input:    []byte("data: {\"first\":\"1\"}\n\ndata: {\"second\":\"2\"}\n\ndata: [DONE]\n\n"),
+			expected: "{\"second\":\"2\"}",
+		},
+		{
+			name:     "empty input",
+			input:    []byte(""),
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := parseSSEToJSON(tt.input)
+			if string(result) != tt.expected {
+				t.Errorf("parseSSEToJSON() = %q, want %q", string(result), tt.expected)
+			}
+		})
+	}
+}
