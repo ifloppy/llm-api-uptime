@@ -1,6 +1,10 @@
 # LLM API Uptime Monitor
 
+> [中文文档](README.zh-CN.md)
+
 A lightweight tool for monitoring the uptime and stability of LLM API providers (OpenAI Compatible & Anthropic).
+
+> **AI Notice**: This project is developed with assistance from AI tools.
 
 ## Features
 
@@ -157,3 +161,7 @@ ProviderA,gpt-4,2024-01-01 ~ 2024-01-07,1000,980,15,3,2,0,98.0,234,45.20,"2024-0
 ## License
 
 MIT License - see [LICENSE](LICENSE) file for details.
+
+---
+
+[中文文档](README.zh-CN.md)
