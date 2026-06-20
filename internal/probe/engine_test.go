@@ -94,7 +94,7 @@ func TestEngineTriggerOnce(t *testing.T) {
 	engine.TriggerOnce()
 	time.Sleep(500 * time.Millisecond)
 
-	results, err := db.GetResultsForProbe(1, time.Now().Add(-1*time.Minute))
+	results, err := db.GetResultsForProbe(1, 50)
 	if err != nil {
 		t.Fatalf("failed to get results: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestEngineProbeWithNoProbes(t *testing.T) {
 	engine.TriggerOnce()
 	time.Sleep(100 * time.Millisecond)
 
-	results, err := db.GetResultsForProbe(1, time.Now().Add(-1*time.Minute))
+	results, err := db.GetResultsForProbe(1, 50)
 	if err != nil {
 		t.Fatalf("failed to get results: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestEngineProbeWithDisabledProvider(t *testing.T) {
 	engine.TriggerOnce()
 	time.Sleep(100 * time.Millisecond)
 
-	results, err := db.GetResultsForProbe(probe.ID, time.Now().Add(-1*time.Minute))
+	results, err := db.GetResultsForProbe(probe.ID, 50)
 	if err != nil {
 		t.Fatalf("failed to get results: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestEngineProbeWithDisabledProbe(t *testing.T) {
 	engine.TriggerOnce()
 	time.Sleep(100 * time.Millisecond)
 
-	results, err := db.GetResultsForProbe(probe.ID, time.Now().Add(-1*time.Minute))
+	results, err := db.GetResultsForProbe(probe.ID, 50)
 	if err != nil {
 		t.Fatalf("failed to get results: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestEngineProbeUnknownAPIType(t *testing.T) {
 	engine.TriggerOnce()
 	time.Sleep(100 * time.Millisecond)
 
-	results, err := db.GetResultsForProbe(probe.ID, time.Now().Add(-1*time.Minute))
+	results, err := db.GetResultsForProbe(probe.ID, 50)
 	if err != nil {
 		t.Fatalf("failed to get results: %v", err)
 	}

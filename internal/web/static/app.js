@@ -78,6 +78,14 @@ async function loadDashboard() {
         statusEl.textContent = status.running ? 'Running' : 'Stopped';
         statusEl.className = `status-badge ${status.running ? 'success' : 'danger'}`;
         
+        const lastProbeEl = document.getElementById('lastProbeTime');
+        if (status.last_probe_time) {
+            const date = new Date(status.last_probe_time);
+            lastProbeEl.textContent = date.toLocaleString();
+        } else {
+            lastProbeEl.textContent = 'Never';
+        }
+        
         const stats = await apiCall('/stats?hours=24');
         renderStatsGrid(stats);
         
@@ -467,7 +475,7 @@ async function loadStats() {
             ps.models.forEach(ms => {
                 const tpsClass = ms.avg_tps >= 10 ? 'rate-good' : (ms.avg_tps >= 1 ? 'rate-warning' : 'rate-bad');
                 html += `
-                    <tr>
+                    <tr onclick="showProbeDetails(${ms.probe_id || 0}, '${escapeHtml(ms.provider_name)}', '${escapeHtml(ms.model)}')" style="cursor: pointer;">
                         <td>${escapeHtml(ms.provider_name)}</td>
                         <td>${escapeHtml(ms.model)}</td>
                         <td>${ms.total_probes}</td>
@@ -503,7 +511,81 @@ async function clearStats() {
 
 async function exportCSV() {
     const hours = document.getElementById('timeRange').value;
-    window.location.href = `${API_BASE}/export/csv?hours=${hours}`;
+    const token = localStorage.getItem('auth_token');
+    
+    try {
+        const response = await fetch(`${API_BASE}/export/csv?hours=${hours}`, {
+            headers: {
+                'Content-Type': 'application/json',
+                ...(token && { 'Authorization': `Bearer ${token}` })
+            }
+        });
+        
+        if (response.status === 401) {
+            localStorage.removeItem('auth_token');
+            window.location.href = '/login.html';
+            return;
+        }
+        
+        if (!response.ok) {
+            throw new Error('Export failed');
+        }
+        
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `uptime_report_${new Date().toISOString().slice(0,10)}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        showToast('CSV exported successfully', 'success');
+    } catch (error) {
+        showToast('Failed to export CSV', 'error');
+    }
+}
+
+async function showProbeDetails(probeId, providerName, model) {
+    if (!probeId) {
+        showToast('No probe ID available', 'error');
+        return;
+    }
+    
+    try {
+        const results = await apiCall(`/probes/${probeId}/results?limit=50`);
+        
+        document.getElementById('modalTitle').textContent = `${providerName} - ${model}`;
+        
+        let content = '<div style="max-height: 400px; overflow-y: auto;">';
+        content += '<table class="data-table"><thead><tr>';
+        content += '<th>Time</th><th>Status</th><th>Latency</th><th>TPS</th><th>Request ID</th><th>Error</th>';
+        content += '</tr></thead><tbody>';
+        
+        if (results && results.length > 0) {
+            results.forEach(r => {
+                const statusClass = r.status === 'success' ? 'rate-good' : 'rate-bad';
+                const time = new Date(r.created_at).toLocaleString();
+                content += `<tr>
+                    <td>${time}</td>
+                    <td><span class="${statusClass}">${r.status}</span></td>
+                    <td>${r.latency_ms}ms</td>
+                    <td>${r.tps.toFixed(2)}</td>
+                    <td>${r.request_id || '-'}</td>
+                    <td>${r.error_message || '-'}</td>
+                </tr>`;
+            });
+        } else {
+            content += '<tr><td colspan="6" class="empty-state">No results found</td></tr>';
+        }
+        
+        content += '</tbody></table></div>';
+        
+        document.getElementById('modalBody').innerHTML = content;
+        showModal();
+    } catch (error) {
+        showToast('Failed to load probe details', 'error');
+    }
 }
 
 function showModal() {

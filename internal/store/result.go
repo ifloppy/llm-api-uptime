@@ -36,6 +36,49 @@ func (s *Store) GetResultCount() (int, error) {
 	return count, err
 }
 
+func (s *Store) GetLastProbeTime() (*time.Time, error) {
+	var lastTime sql.NullTime
+	err := s.db.QueryRow("SELECT MAX(created_at) FROM results").Scan(&lastTime)
+	if err != nil {
+		return nil, err
+	}
+	if lastTime.Valid {
+		return &lastTime.Time, nil
+	}
+	return nil, nil
+}
+
+func (s *Store) GetResultsForProbe(probeID int64, limit int) ([]model.Result, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.db.Query(`
+		SELECT id, probe_id, status, status_code, latency_ms, 
+		       prompt_tokens, completion_tokens, total_tokens, tps,
+		       error_code, error_message, request_id, raw_error, created_at
+		FROM results
+		WHERE probe_id = ?
+		ORDER BY created_at DESC
+		LIMIT ?
+	`, probeID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("get results: %w", err)
+	}
+	defer rows.Close()
+
+	var results []model.Result
+	for rows.Next() {
+		var r model.Result
+		if err := rows.Scan(&r.ID, &r.ProbeID, &r.Status, &r.StatusCode, &r.LatencyMs,
+			&r.PromptTokens, &r.CompletionTokens, &r.TotalTokens, &r.TPS,
+			&r.ErrorCode, &r.ErrorMessage, &r.RequestID, &r.RawError, &r.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan result: %w", err)
+		}
+		results = append(results, r)
+	}
+	return results, nil
+}
+
 func (s *Store) GetStats(query model.StatsQuery) ([]model.ProviderStats, error) {
 	var since time.Time
 	if query.Days > 0 {
@@ -167,31 +210,4 @@ func (s *Store) GetDowntimePeriods(probeID int64, since time.Time) ([]model.Down
 	}
 
 	return periods, nil
-}
-
-func (s *Store) GetResultsForProbe(probeID int64, since time.Time) ([]model.Result, error) {
-	rows, err := s.db.Query(`
-		SELECT id, probe_id, status, status_code, latency_ms, 
-		       prompt_tokens, completion_tokens, total_tokens, tps,
-		       error_code, error_message, request_id, raw_error, created_at
-		FROM results
-		WHERE probe_id = ? AND created_at >= ?
-		ORDER BY created_at DESC
-	`, probeID, since)
-	if err != nil {
-		return nil, fmt.Errorf("get results: %w", err)
-	}
-	defer rows.Close()
-
-	var results []model.Result
-	for rows.Next() {
-		var r model.Result
-		if err := rows.Scan(&r.ID, &r.ProbeID, &r.Status, &r.StatusCode, &r.LatencyMs,
-			&r.PromptTokens, &r.CompletionTokens, &r.TotalTokens, &r.TPS,
-			&r.ErrorCode, &r.ErrorMessage, &r.RequestID, &r.RawError, &r.CreatedAt); err != nil {
-			return nil, fmt.Errorf("scan result: %w", err)
-		}
-		results = append(results, r)
-	}
-	return results, nil
 }

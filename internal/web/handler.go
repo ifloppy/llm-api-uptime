@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"llm-api-uptime/internal/config"
 	"llm-api-uptime/internal/model"
@@ -41,6 +42,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/probes/{id}", h.handleDeleteProbe)
 	mux.HandleFunc("GET /api/stats", h.handleStats)
 	mux.HandleFunc("DELETE /api/stats", h.handleClearStats)
+	mux.HandleFunc("GET /api/probes/{id}/results", h.handleGetProbeResults)
 	mux.HandleFunc("GET /api/export/csv", h.handleExportCSV)
 	mux.HandleFunc("POST /api/probe/trigger", h.handleTriggerProbe)
 	mux.HandleFunc("POST /api/login", h.handleLogin)
@@ -57,11 +59,19 @@ func readJSON(r *http.Request, v interface{}) error {
 }
 
 func (h *Handler) handleStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	lastProbeTime, _ := h.store.GetLastProbeTime()
+	
+	response := map[string]interface{}{
 		"running":  h.engine.IsRunning(),
 		"interval": h.config.ProbeInterval.String(),
 		"db_path":  h.config.DBPath,
-	})
+	}
+	
+	if lastProbeTime != nil {
+		response["last_probe_time"] = lastProbeTime.Format(time.RFC3339)
+	}
+	
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (h *Handler) handleListProviders(w http.ResponseWriter, r *http.Request) {
@@ -324,6 +334,31 @@ func (h *Handler) handleClearStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "cleared"})
+}
+
+func (h *Handler) handleGetProbeResults(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid id"})
+		return
+	}
+
+	limitStr := r.URL.Query().Get("limit")
+	limit := 50
+	if limitStr != "" {
+		if n, err := strconv.Atoi(limitStr); err == nil && n > 0 {
+			limit = n
+		}
+	}
+
+	results, err := h.store.GetResultsForProbe(id, limit)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, results)
 }
 
 func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
