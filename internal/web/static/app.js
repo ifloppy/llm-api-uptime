@@ -174,6 +174,7 @@ async function loadProviders() {
                 <td>${p.max_tokens || 2}</td>
                 <td><span class="status-badge ${p.enabled ? 'success' : 'neutral'}">${p.enabled ? 'Active' : 'Disabled'}</span></td>
                 <td>
+                    <button class="btn btn-sm btn-secondary" onclick="editProvider(${p.id})">Edit</button>
                     <button class="btn btn-sm btn-secondary" onclick="fetchModels(${p.id})">Fetch Models</button>
                     <button class="btn btn-sm btn-danger" onclick="deleteProvider(${p.id})">Delete</button>
                 </td>
@@ -238,6 +239,80 @@ function showAddProvider() {
     });
     
     showModal();
+}
+
+async function editProvider(id) {
+    try {
+        const providers = await apiCall('/providers');
+        const provider = providers.find(p => p.id === id);
+        if (!provider) {
+            showToast('Provider not found', 'error');
+            return;
+        }
+        
+        document.getElementById('modalTitle').textContent = 'Edit Provider';
+        document.getElementById('modalBody').innerHTML = `
+            <form id="editProviderForm">
+                <div class="form-group">
+                    <label>Name</label>
+                    <input type="text" name="name" required value="${escapeHtml(provider.name)}">
+                </div>
+                <div class="form-group">
+                    <label>Base URL</label>
+                    <input type="url" name="base_url" required value="${escapeHtml(provider.base_url)}">
+                </div>
+                <div class="form-group">
+                    <label>API Key</label>
+                    <input type="password" name="api_key" required value="${escapeHtml(provider.api_key)}">
+                </div>
+                <div class="form-group">
+                    <label>API Type</label>
+                    <select name="api_type">
+                        <option value="openai" ${provider.api_type === 'openai' ? 'selected' : ''}>OpenAI Compatible</option>
+                        <option value="anthropic" ${provider.api_type === 'anthropic' ? 'selected' : ''}>Anthropic</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Max Tokens</label>
+                    <input type="number" name="max_tokens" min="1" value="${provider.max_tokens || 2}">
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="enabled" ${provider.enabled ? 'checked' : ''}>
+                        Enabled
+                    </label>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+            </form>
+        `;
+        
+        document.getElementById('editProviderForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            try {
+                await apiCall(`/providers/${id}`, 'PUT', {
+                    name: formData.get('name'),
+                    base_url: formData.get('base_url'),
+                    api_key: formData.get('api_key'),
+                    api_type: formData.get('api_type'),
+                    max_tokens: parseInt(formData.get('max_tokens')) || 2,
+                    enabled: formData.has('enabled')
+                });
+                hideModal();
+                loadProviders();
+                showToast('Provider updated successfully', 'success');
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        });
+        
+        showModal();
+    } catch (error) {
+        showToast('Failed to load provider', 'error');
+    }
 }
 
 async function deleteProvider(id) {
