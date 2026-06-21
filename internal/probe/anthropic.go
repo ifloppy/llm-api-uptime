@@ -2,6 +2,7 @@ package probe
 
 import (
 	"context"
+	"net/http"
 	"strings"
 	"time"
 
@@ -18,9 +19,22 @@ func probeAnthropic(ctx context.Context, baseURL, apiKey, providerName, modelID 
 		maxTokens = 2
 	}
 
+	var requestIDFromHeader string
+
 	client := anthropic.NewClient(
 		option.WithBaseURL(strings.TrimRight(baseURL, "/") + "/v1"),
 		option.WithAPIKey(apiKey),
+		option.WithMiddleware(func(req *http.Request, nxt option.MiddlewareNext) (*http.Response, error) {
+			resp, err := nxt(req)
+			if err == nil {
+				if rid := resp.Header.Get("x-request-id"); rid != "" {
+					requestIDFromHeader = rid
+				} else if rid := resp.Header.Get("x-oneapi-request-id"); rid != "" {
+					requestIDFromHeader = rid
+				}
+			}
+			return resp, err
+		}),
 	)
 
 	message, err := client.Messages.New(ctx, anthropic.MessageNewParams{
@@ -48,7 +62,10 @@ func probeAnthropic(ctx context.Context, baseURL, apiKey, providerName, modelID 
 		}
 	}
 
-	requestID := message.ID
+	requestID := requestIDFromHeader
+	if requestID == "" {
+		requestID = message.ID
+	}
 
 	if len(message.Content) == 0 {
 		return &model.Result{
