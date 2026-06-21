@@ -2,7 +2,6 @@ package probe
 
 import (
 	"context"
-	"net/http"
 	"strings"
 	"time"
 
@@ -19,20 +18,9 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 		maxTokens = 2
 	}
 
-	var requestIDFromHeader string
-
 	client := openai.NewClient(
 		option.WithBaseURL(strings.TrimRight(baseURL, "/") + "/v1"),
 		option.WithAPIKey(apiKey),
-		option.WithMiddleware(func(req *http.Request, nxt option.MiddlewareNext) (*http.Response, error) {
-			resp, err := nxt(req)
-			if err == nil {
-				if rid := resp.Header.Get("x-request-id"); rid != "" {
-					requestIDFromHeader = rid
-				}
-			}
-			return resp, err
-		}),
 	)
 
 	stream := client.Chat.Completions.NewStreaming(ctx, openai.ChatCompletionNewParams{
@@ -68,10 +56,7 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 		}
 	}
 
-	requestID := requestIDFromHeader
-	if requestID == "" {
-		requestID = acc.ID
-	}
+	requestID := acc.ID
 	if len(acc.Choices) == 0 {
 		return &model.Result{
 			Status:           model.StatusEmptyContent,
