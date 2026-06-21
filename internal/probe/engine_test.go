@@ -92,7 +92,7 @@ func TestEngineTriggerOnce(t *testing.T) {
 	createTestSetup(t, db)
 
 	engine.TriggerOnce()
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(2 * time.Second) // Give SDK more time to fail
 
 	results, err := db.GetResultsForProbe(1, 50, "")
 	if err != nil {

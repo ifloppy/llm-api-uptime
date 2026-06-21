@@ -452,6 +452,7 @@ func TestHandleFetchModels(t *testing.T) {
 			json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
 			return
 		}
+		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"data": []map[string]string{
 				{"id": "gpt-4"},
