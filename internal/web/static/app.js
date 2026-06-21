@@ -466,7 +466,7 @@ async function loadStats() {
         const tbody = document.getElementById('statsTable');
         
         if (stats.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No statistics available</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No statistics available</td></tr>';
             return;
         }
         
@@ -475,13 +475,14 @@ async function loadStats() {
             ps.models.forEach(ms => {
                 const tpsClass = ms.avg_tps >= 10 ? 'rate-good' : (ms.avg_tps >= 1 ? 'rate-warning' : 'rate-bad');
                 html += `
-                    <tr onclick="showProbeDetails(${ms.probe_id || 0}, '${escapeHtml(ms.provider_name)}', '${escapeHtml(ms.model)}')" style="cursor: pointer;">
-                        <td>${escapeHtml(ms.provider_name)}</td>
-                        <td>${escapeHtml(ms.model)}</td>
-                        <td>${ms.total_probes}</td>
-                        <td><span class="${getRateClass(ms.success_rate)}">${ms.success_rate.toFixed(1)}%</span></td>
-                        <td>${ms.avg_latency_ms.toFixed(0)}ms</td>
-                        <td><span class="${tpsClass}">${ms.avg_tps.toFixed(2)}</span></td>
+                    <tr>
+                        <td onclick="showProbeDetails(${ms.probe_id || 0}, '${escapeHtml(ms.provider_name)}', '${escapeHtml(ms.model)}')" style="cursor: pointer;">${escapeHtml(ms.provider_name)}</td>
+                        <td onclick="showProbeDetails(${ms.probe_id || 0}, '${escapeHtml(ms.provider_name)}', '${escapeHtml(ms.model)}')" style="cursor: pointer;">${escapeHtml(ms.model)}</td>
+                        <td onclick="showProbeDetails(${ms.probe_id || 0}, '${escapeHtml(ms.provider_name)}', '${escapeHtml(ms.model)}')" style="cursor: pointer;">${ms.total_probes}</td>
+                        <td onclick="showProbeDetails(${ms.probe_id || 0}, '${escapeHtml(ms.provider_name)}', '${escapeHtml(ms.model)}')" style="cursor: pointer;"><span class="${getRateClass(ms.success_rate)}">${ms.success_rate.toFixed(1)}%</span></td>
+                        <td onclick="showProbeDetails(${ms.probe_id || 0}, '${escapeHtml(ms.provider_name)}', '${escapeHtml(ms.model)}')" style="cursor: pointer;">${ms.avg_latency_ms.toFixed(0)}ms</td>
+                        <td onclick="showProbeDetails(${ms.probe_id || 0}, '${escapeHtml(ms.provider_name)}', '${escapeHtml(ms.model)}')" style="cursor: pointer;"><span class="${tpsClass}">${ms.avg_tps.toFixed(2)}</span></td>
+                        <td><button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteModel(${ms.probe_id || 0}, '${escapeHtml(ms.provider_name)}', '${escapeHtml(ms.model)}')">Delete</button></td>
                     </tr>
                 `;
             });
@@ -506,6 +507,25 @@ async function clearStats() {
         showToast('Statistics cleared', 'success');
     } catch (error) {
         showToast('Failed to clear statistics', 'error');
+    }
+}
+
+async function deleteModel(probeId, providerName, model) {
+    if (!probeId) {
+        showToast('No probe ID available', 'error');
+        return;
+    }
+    
+    if (!confirm(`Delete model '${model}' from ${providerName}? This will remove the probe and all its history.`)) {
+        return;
+    }
+    
+    try {
+        await apiCall(`/probes/${probeId}`, 'DELETE');
+        loadStats();
+        showToast('Model deleted', 'success');
+    } catch (error) {
+        showToast('Failed to delete model', 'error');
     }
 }
 
