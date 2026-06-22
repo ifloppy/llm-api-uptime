@@ -39,13 +39,12 @@
             <div id="dashboard" class="page active">
                 <div class="page-header">
                     <h1>Dashboard</h1>
-                    <div class="status-badge" id="engineStatus">Loading...</div>
+                    <div class="header-meta">
+                        <span class="status-badge" id="engineStatus">Loading...</span>
+                        <span class="muted" style="margin-left:12px">Last probe: <strong id="lastProbeTime">-</strong></span>
+                    </div>
                 </div>
-                <div class="stats-grid" id="statsGrid"></div>
-                <div class="card">
-                    <h3>Last Probe Time</h3>
-                    <div id="lastProbeTime" class="muted">Loading...</div>
-                </div>
+                <div class="model-cards" id="modelCards"></div>
                 <div class="card">
                     <h3>Recent Activity</h3>
                     <div id="recentActivity"></div>

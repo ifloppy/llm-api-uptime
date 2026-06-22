@@ -80,61 +80,65 @@ async function loadDashboard() {
         
         const lastProbeEl = document.getElementById('lastProbeTime');
         if (status.last_probe_time) {
-            const date = new Date(status.last_probe_time);
-            lastProbeEl.textContent = date.toLocaleString();
+            lastProbeEl.textContent = new Date(status.last_probe_time).toLocaleString();
         } else {
             lastProbeEl.textContent = 'Never';
         }
         
         const stats = await apiCall('/stats?hours=24');
-        renderStatsGrid(stats);
-        
+        renderModelCards(stats);
         renderRecentActivity(stats);
     } catch (error) {
         console.error('Failed to load dashboard:', error);
     }
 }
 
-function renderStatsGrid(stats) {
-    const grid = document.getElementById('statsGrid');
+function renderModelCards(stats) {
+    const grid = document.getElementById('modelCards');
     
-    let totalProbes = 0;
-    let totalSuccess = 0;
-    let avgLatency = 0;
-    let modelCount = 0;
+    if (stats.length === 0) {
+        grid.innerHTML = '<div class="empty-state">No statistics yet</div>';
+        return;
+    }
     
+    let html = '';
     stats.forEach(ps => {
         ps.models.forEach(ms => {
-            totalProbes += ms.total_probes;
-            totalSuccess += ms.success_count;
-            if (ms.avg_latency_ms > 0) {
-                avgLatency += ms.avg_latency_ms;
-                modelCount++;
-            }
+            const icon = getStatusIcon(ms.last_status, ms.last_tps);
+            const rate = ms.success_rate;
+            const rateColor = rate >= 99 ? '#10b981' : (rate >= 95 ? '#f59e0b' : '#ef4444');
+            const tpsColor = ms.avg_tps >= 10 ? '#10b981' : (ms.avg_tps >= 1 ? '#f59e0b' : '#ef4444');
+            
+            html += `
+                <div class="model-card" onclick="showProbeDetails(${ms.probe_id || 0}, '${escapeHtml(ms.provider_name)}', '${escapeHtml(ms.model)}')">
+                    <div class="mc-header">
+                        <span class="mc-icon">${icon}</span>
+                        <div class="mc-title">
+                            <div class="mc-provider">${escapeHtml(ms.provider_name)}</div>
+                            <div class="mc-model">${escapeHtml(ms.model)}</div>
+                        </div>
+                    </div>
+                    <div class="mc-body">
+                        <div class="mc-metric">
+                            <div class="mc-label">Uptime</div>
+                            <div class="mc-bar-bg"><div class="mc-bar" style="width:${Math.min(rate,100)}%;background:${rateColor}"></div></div>
+                            <div class="mc-value" style="color:${rateColor}">${rate.toFixed(1)}%</div>
+                        </div>
+                        <div class="mc-metric">
+                            <div class="mc-label">Avg TPS</div>
+                            <div class="mc-value" style="color:${tpsColor};font-size:1.5em">${ms.avg_tps.toFixed(1)}</div>
+                        </div>
+                        <div class="mc-sub">
+                            <span>${ms.total_probes} probes</span>
+                            <span>${ms.avg_latency_ms.toFixed(0)}ms</span>
+                        </div>
+                    </div>
+                </div>
+            `;
         });
     });
     
-    const successRate = totalProbes > 0 ? (totalSuccess / totalProbes * 100) : 0;
-    const avgLatencyMs = modelCount > 0 ? (avgLatency / modelCount) : 0;
-    
-    grid.innerHTML = `
-        <div class="stat-card">
-            <div class="label">Total Probes (24h)</div>
-            <div class="value">${totalProbes}</div>
-        </div>
-        <div class="stat-card">
-            <div class="label">Success Rate</div>
-            <div class="value ${getRateClass(successRate)}">${successRate.toFixed(1)}%</div>
-        </div>
-        <div class="stat-card">
-            <div class="label">Avg Latency</div>
-            <div class="value">${avgLatencyMs.toFixed(0)}ms</div>
-        </div>
-        <div class="stat-card">
-            <div class="label">Active Models</div>
-            <div class="value">${stats.reduce((acc, ps) => acc + ps.models.length, 0)}</div>
-        </div>
-    `;
+    grid.innerHTML = html;
 }
 
 function renderRecentActivity(stats) {
