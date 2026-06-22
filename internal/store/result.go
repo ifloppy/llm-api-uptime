@@ -102,6 +102,92 @@ func (s *Store) GetResultsForProbe(probeID int64, limit int, statusFilter string
 	return results, nil
 }
 
+func (s *Store) GetResultsForProbePage(probeID int64, limit, offset int, statusFilter string) ([]model.Result, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	query := `
+		SELECT id, probe_id, status, status_code, latency_ms,
+		       prompt_tokens, completion_tokens, total_tokens, tps,
+		       error_code, error_message, request_id, raw_error, created_at
+		FROM results
+		WHERE probe_id = ?
+	`
+	args := []interface{}{probeID}
+
+	if statusFilter == "failed" {
+		query += ` AND status != 'success'`
+	} else if statusFilter != "" {
+		query += ` AND status = ?`
+		args = append(args, statusFilter)
+	}
+
+	query += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`
+	args = append(args, limit, offset)
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("get results page: %w", err)
+	}
+	defer rows.Close()
+
+	var results []model.Result
+	for rows.Next() {
+		var r model.Result
+		if err := rows.Scan(&r.ID, &r.ProbeID, &r.Status, &r.StatusCode, &r.LatencyMs,
+			&r.PromptTokens, &r.CompletionTokens, &r.TotalTokens, &r.TPS,
+			&r.ErrorCode, &r.ErrorMessage, &r.RequestID, &r.RawError, &r.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan result: %w", err)
+		}
+		results = append(results, r)
+	}
+	return results, nil
+}
+
+func (s *Store) GetResultsCount(probeID int64, statusFilter string) (int, error) {
+	query := `SELECT COUNT(*) FROM results WHERE probe_id = ?`
+	args := []interface{}{probeID}
+
+	if statusFilter == "failed" {
+		query += ` AND status != 'success'`
+	} else if statusFilter != "" {
+		query += ` AND status = ?`
+		args = append(args, statusFilter)
+	}
+
+	var count int
+	err := s.db.QueryRow(query, args...).Scan(&count)
+	return count, err
+}
+
+func (s *Store) GetHourlySummary(probeID int64, hours int) ([]model.HourlySummary, error) {
+	query := `
+		SELECT 
+			strftime('%Y-%m-%d %H:00:00', created_at) as hour,
+			COUNT(*) as total,
+			SUM(CASE WHEN status != 'success' THEN 1 ELSE 0 END) as failed
+		FROM results
+		WHERE probe_id = ? AND created_at >= datetime('now', ?)
+		GROUP BY strftime('%Y-%m-%d %H:00:00', created_at)
+		ORDER BY hour DESC
+	`
+	rows, err := s.db.Query(query, probeID, fmt.Sprintf("-%d hours", hours))
+	if err != nil {
+		return nil, fmt.Errorf("get hourly summary: %w", err)
+	}
+	defer rows.Close()
+
+	var summaries []model.HourlySummary
+	for rows.Next() {
+		var hs model.HourlySummary
+		if err := rows.Scan(&hs.Hour, &hs.Total, &hs.Failed); err != nil {
+			return nil, fmt.Errorf("scan hourly summary: %w", err)
+		}
+		summaries = append(summaries, hs)
+	}
+	return summaries, nil
+}
+
 func (s *Store) GetStats(query model.StatsQuery) ([]model.ProviderStats, error) {
 	var since time.Time
 	if query.Days > 0 {

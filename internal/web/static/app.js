@@ -132,13 +132,37 @@ function renderModelCards(stats) {
                             <span>${ms.total_probes} probes</span>
                             <span>${ms.avg_latency_ms.toFixed(0)}ms</span>
                         </div>
+                        <div class="timeline-blocks" id="tl-${ms.probe_id}"></div>
                     </div>
                 </div>
             `;
+            // load timeline data async
+            if (ms.probe_id) loadTimeline(ms.probe_id);
         });
     });
     
     grid.innerHTML = html;
+}
+
+async function loadTimeline(probeId) {
+    try {
+        const summary = await apiCall(`/probes/${probeId}/hourly?hours=24`);
+        const container = document.getElementById(`tl-${probeId}`);
+        if (!container || !summary || summary.length === 0) return;
+        
+        let html = '';
+        summary.forEach(h => {
+            let cls = 'tb-gray';
+            if (h.total > 0) {
+                const failRate = h.failed / h.total;
+                if (failRate === 0) cls = 'tb-green';
+                else if (failRate < 0.5) cls = 'tb-yellow';
+                else cls = 'tb-red';
+            }
+            html += `<div class="timeline-block ${cls}" title="${h.hour}: ${h.total} probes, ${h.failed} failed"></div>`;
+        });
+        container.innerHTML = html;
+    } catch (e) { /* silently ignore */ }
 }
 
 function renderRecentActivity(stats) {
@@ -574,29 +598,32 @@ async function exportCSV() {
     }
 }
 
-async function showProbeDetails(probeId, providerName, model, statusFilter = '') {
+async function showProbeDetails(probeId, providerName, model, statusFilter = '', page = 1) {
     if (!probeId) {
         showToast('No probe ID available', 'error');
         return;
     }
 
     try {
-        let url = `/probes/${probeId}/results?limit=50`;
+        let url = `/probes/${probeId}/results?limit=20&page=${page}`;
         if (statusFilter) {
             url += `&status=${encodeURIComponent(statusFilter)}`;
         }
-        const results = await apiCall(url);
+        const data = await apiCall(url);
+        const results = data.results || data;
+        const total = data.total || 0;
+        const totalPages = data.pages || 1;
 
         document.getElementById('modalTitle').textContent = `${providerName} - ${model}`;
 
         let content = '<div>';
         content += '<div style="margin-bottom: 12px; display: flex; gap: 8px;">';
-        content += `<button class="btn btn-sm ${statusFilter === '' ? 'btn-primary' : 'btn-secondary'}" onclick="showProbeDetails(${probeId}, '${escapeHtml(providerName)}', '${escapeHtml(model)}', '')">All</button>`;
-        content += `<button class="btn btn-sm ${statusFilter === 'failed' ? 'btn-danger' : 'btn-secondary'}" onclick="showProbeDetails(${probeId}, '${escapeHtml(providerName)}', '${escapeHtml(model)}', 'failed')">Failed Only</button>`;
+        content += `<button class="btn btn-sm ${statusFilter === '' ? 'btn-primary' : 'btn-secondary'}" onclick="showProbeDetails(${probeId}, '${escapeHtml(providerName)}', '${escapeHtml(model)}', '', 1)">All</button>`;
+        content += `<button class="btn btn-sm ${statusFilter === 'failed' ? 'btn-danger' : 'btn-secondary'}" onclick="showProbeDetails(${probeId}, '${escapeHtml(providerName)}', '${escapeHtml(model)}', 'failed', 1)">Failed Only</button>`;
         content += '</div>';
-        content += '<div style="max-height: 65vh; overflow-y: auto;">';
+        content += '<div style="max-height: 55vh; overflow-y: auto;">';
         content += '<table class="data-table"><thead><tr>';
-        content += '<th>Time</th><th>Status</th><th>Latency</th><th>TPS</th><th>Request ID</th><th>Error</th><th>Action</th>';
+        content += '<th>Time</th><th>Status</th><th>Latency</th><th>TPS</th><th>Request ID</th><th>Error</th><th style="width:60px"></th>';
         content += '</tr></thead><tbody>';
 
         if (results && results.length > 0) {
@@ -610,15 +637,25 @@ async function showProbeDetails(probeId, providerName, model, statusFilter = '')
                     <td>${r.tps.toFixed(2)}</td>
                     <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis">${r.request_id || '-'}</td>
                     <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${r.error_message || '-'}</td>
-                    <td><button class="btn btn-sm btn-danger" onclick="deleteResult(${r.id}, ${probeId}, '${escapeHtml(providerName)}', '${escapeHtml(model)}', '${statusFilter}')">Delete</button></td>
+                    <td><button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteResult(${r.id}, ${probeId}, '${escapeHtml(providerName)}', '${escapeHtml(model)}', '${statusFilter}')">Del</button></td>
                 </tr>`;
             });
         } else {
             content += '<tr><td colspan="7" class="empty-state">No results found</td></tr>';
         }
 
-        content += '</tbody></table></div></div>';
+        content += '</tbody></table></div>';
 
+        // pagination
+        if (totalPages > 1) {
+            content += '<div class="pagination">';
+            content += `<button class="btn btn-sm btn-secondary" onclick="showProbeDetails(${probeId}, '${escapeHtml(providerName)}', '${escapeHtml(model)}', '${statusFilter}', ${page - 1})" ${page <= 1 ? 'disabled' : ''}>Prev</button>`;
+            content += `<span class="muted">${page} / ${totalPages}</span>`;
+            content += `<button class="btn btn-sm btn-secondary" onclick="showProbeDetails(${probeId}, '${escapeHtml(providerName)}', '${escapeHtml(model)}', '${statusFilter}', ${page + 1})" ${page >= totalPages ? 'disabled' : ''}>Next</button>`;
+            content += '</div>';
+        }
+
+        content += '</div>';
         document.getElementById('modalBody').innerHTML = content;
         showModal();
     } catch (error) {

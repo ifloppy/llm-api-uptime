@@ -102,6 +102,12 @@ type DowntimePeriod struct {
 	End   time.Time `json:"end"`
 }
 
+type HourlySummary struct {
+	Hour   string `json:"hour"`
+	Total  int    `json:"total"`
+	Failed int    `json:"failed"`
+}
+
 type CSVRow struct {
 	ProviderName    string
 	Model           string

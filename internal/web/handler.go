@@ -43,6 +43,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/stats", h.handleStats)
 	mux.HandleFunc("DELETE /api/stats", h.handleClearStats)
 	mux.HandleFunc("GET /api/probes/{id}/results", h.handleGetProbeResults)
+	mux.HandleFunc("GET /api/probes/{id}/hourly", h.handleGetHourlySummary)
 	mux.HandleFunc("GET /api/export/csv", h.handleExportCSV)
 	mux.HandleFunc("DELETE /api/results/{id}", h.handleDeleteResult)
 	mux.HandleFunc("POST /api/probe/trigger", h.handleTriggerProbe)
@@ -362,22 +363,63 @@ func (h *Handler) handleGetProbeResults(w http.ResponseWriter, r *http.Request) 
 	}
 
 	limitStr := r.URL.Query().Get("limit")
-	limit := 50
+	pageStr := r.URL.Query().Get("page")
+	limit := 20
 	if limitStr != "" {
 		if n, err := strconv.Atoi(limitStr); err == nil && n > 0 {
 			limit = n
 		}
 	}
+	page := 1
+	if pageStr != "" {
+		if n, err := strconv.Atoi(pageStr); err == nil && n > 0 {
+			page = n
+		}
+	}
+	offset := (page - 1) * limit
 
 	statusFilter := r.URL.Query().Get("status")
 
-	results, err := h.store.GetResultsForProbe(id, limit, statusFilter)
+	results, err := h.store.GetResultsForProbePage(id, limit, offset, statusFilter)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, results)
+	total, _ := h.store.GetResultsCount(id, statusFilter)
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"results": results,
+		"total":   total,
+		"page":    page,
+		"limit":   limit,
+		"pages":   (total + limit - 1) / limit,
+	})
+}
+
+func (h *Handler) handleGetHourlySummary(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid id"})
+		return
+	}
+
+	hoursStr := r.URL.Query().Get("hours")
+	hours := 24
+	if hoursStr != "" {
+		if n, err := strconv.Atoi(hoursStr); err == nil && n > 0 {
+			hours = n
+		}
+	}
+
+	summary, err := h.store.GetHourlySummary(id, hours)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, summary)
 }
 
 func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
