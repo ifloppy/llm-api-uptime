@@ -124,7 +124,9 @@ func (s *Store) GetStats(query model.StatsQuery) ([]model.ProviderStats, error) 
 			SUM(CASE WHEN r.status = 'empty_response' THEN 1 ELSE 0 END) as empty_resp_count,
 			SUM(CASE WHEN r.status = 'empty_content' THEN 1 ELSE 0 END) as empty_content_count,
 			AVG(CASE WHEN r.status = 'success' THEN r.latency_ms ELSE NULL END) as avg_latency,
-			AVG(CASE WHEN r.status = 'success' AND r.tps > 0 THEN r.tps ELSE NULL END) as avg_tps
+			AVG(CASE WHEN r.status = 'success' AND r.tps > 0 THEN r.tps ELSE NULL END) as avg_tps,
+			COALESCE((SELECT r2.status FROM results r2 WHERE r2.probe_id = p.id ORDER BY r2.created_at DESC LIMIT 1), '') as last_status,
+			COALESCE((SELECT r2.tps FROM results r2 WHERE r2.probe_id = p.id ORDER BY r2.created_at DESC LIMIT 1), 0) as last_tps
 		FROM results r
 		JOIN probes p ON r.probe_id = p.id
 		JOIN providers pr ON p.provider_id = pr.id
@@ -148,7 +150,7 @@ func (s *Store) GetStats(query model.StatsQuery) ([]model.ProviderStats, error) 
 
 		err := rows.Scan(&ms.ProbeID, &providerName, &ms.Model, &ms.TotalProbes, &ms.SuccessCount,
 			&ms.ErrorCount, &ms.TimeoutCount, &ms.EmptyRespCount, &ms.EmptyContentCount,
-			&avgLatency, &avgTPS)
+			&avgLatency, &avgTPS, &ms.LastStatus, &ms.LastTPS)
 		if err != nil {
 			return nil, fmt.Errorf("scan stats: %w", err)
 		}

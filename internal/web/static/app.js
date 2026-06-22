@@ -466,16 +466,18 @@ async function loadStats() {
         const tbody = document.getElementById('statsTable');
         
         if (stats.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No statistics available</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No statistics available</td></tr>';
             return;
         }
         
         let html = '';
         stats.forEach(ps => {
             ps.models.forEach(ms => {
+                const icon = getStatusIcon(ms.last_status, ms.last_tps);
                 const tpsClass = ms.avg_tps >= 10 ? 'rate-good' : (ms.avg_tps >= 1 ? 'rate-warning' : 'rate-bad');
                 html += `
                     <tr>
+                        <td style="text-align:center;font-size:1.2em" onclick="showProbeDetails(${ms.probe_id || 0}, '${escapeHtml(ms.provider_name)}', '${escapeHtml(ms.model)}')">${icon}</td>
                         <td onclick="showProbeDetails(${ms.probe_id || 0}, '${escapeHtml(ms.provider_name)}', '${escapeHtml(ms.model)}')" style="cursor: pointer;">${escapeHtml(ms.provider_name)}</td>
                         <td onclick="showProbeDetails(${ms.probe_id || 0}, '${escapeHtml(ms.provider_name)}', '${escapeHtml(ms.model)}')" style="cursor: pointer;">${escapeHtml(ms.model)}</td>
                         <td onclick="showProbeDetails(${ms.probe_id || 0}, '${escapeHtml(ms.provider_name)}', '${escapeHtml(ms.model)}')" style="cursor: pointer;">${ms.total_probes}</td>
@@ -655,6 +657,13 @@ function getRateClass(rate) {
     if (rate >= 99) return 'rate-good';
     if (rate >= 95) return 'rate-warning';
     return 'rate-bad';
+}
+
+function getStatusIcon(status, tps) {
+    if (status === 'success') {
+        return tps >= 1 ? '🟢' : '🟡';
+    }
+    return '🔴';
 }
 
 function escapeHtml(text) {

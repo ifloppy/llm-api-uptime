@@ -80,6 +80,8 @@ type ModelStats struct {
 	TimeoutCount      int       `json:"timeout_count"`
 	EmptyRespCount    int       `json:"empty_resp_count"`
 	EmptyContentCount int       `json:"empty_content_count"`
+	LastStatus        string    `json:"last_status"`
+	LastTPS           float64   `json:"last_tps"`
 	SuccessRate       float64   `json:"success_rate"`
 	AvgLatencyMs      float64   `json:"avg_latency_ms"`
 	AvgTPS            float64   `json:"avg_tps"`

@@ -190,7 +190,7 @@ func (s *Stats) View() string {
 	rows := []string{
 		TableHeaderStyle.Width(s.width).Render(
 			lipgloss.JoinHorizontal(lipgloss.Left,
-				TableCellStyle.Width(2).Render(""),
+				TableCellStyle.Width(4).Render(""),
 				TableCellStyle.Width(20).Render("Provider"),
 				TableCellStyle.Width(25).Render("Model"),
 				TableCellStyle.Width(10).Render("Probes"),
@@ -220,6 +220,7 @@ func (s *Stats) View() string {
 				tpsStyle = ErrorStyle
 			}
 
+			icon := getStatusIcon(ms.LastStatus, ms.LastTPS)
 			prefix := "  "
 			style := TableCellStyle
 			if idx == s.cursor {
@@ -229,7 +230,7 @@ func (s *Stats) View() string {
 
 			row := style.Width(s.width).Render(
 				lipgloss.JoinHorizontal(lipgloss.Left,
-					TableCellStyle.Width(2).Render(prefix),
+					TableCellStyle.Width(4).Render(icon+prefix),
 					TableCellStyle.Width(20).Render(ms.ProviderName),
 					TableCellStyle.Width(25).Render(ms.Model),
 					TableCellStyle.Width(10).Render(fmt.Sprintf("%d", ms.TotalProbes)),
@@ -264,4 +265,14 @@ func (s *Stats) SetSize(width, height int) {
 
 func (s *Stats) IsFormMode() bool {
 	return s.mode == "confirm"
+}
+
+func getStatusIcon(status string, tps float64) string {
+	if status == "success" {
+		if tps >= 1 {
+			return "🟢"
+		}
+		return "🟡"
+	}
+	return "🔴"
 }
