@@ -145,13 +145,15 @@ function renderRecentActivity(stats) {
         return;
     }
     
-    let html = '<table class="data-table"><thead><tr><th>Provider</th><th>Model</th><th>Status</th></tr></thead><tbody>';
+    let html = '<table class="data-table"><thead><tr><th></th><th>Provider</th><th>Model</th><th>Status</th></tr></thead><tbody>';
     
     stats.forEach(ps => {
         ps.models.forEach(ms => {
+            const icon = getStatusIcon(ms.last_status, ms.last_tps);
             const rate = ms.success_rate;
             html += `
                 <tr>
+                    <td style="text-align:center;font-size:1.2em">${icon}</td>
                     <td>${ms.provider_name}</td>
                     <td>${ms.model}</td>
                     <td><span class="${getRateClass(rate)}">${rate.toFixed(1)}%</span></td>
