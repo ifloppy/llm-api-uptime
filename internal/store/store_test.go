@@ -1,7 +1,6 @@
 package store
 
 import (
-	"fmt"
 	"llm-api-uptime/internal/model"
 	"testing"
 	"time"
@@ -605,8 +604,8 @@ func TestGetLastProbeTime(t *testing.T) {
 		t.Errorf("expected nil when no results, got %v", lastTime)
 	}
 
-	// Insert using raw SQL with SQLite-native datetime format to work around
-	// modernc.org/sqlite returning string values that sql.NullTime.Scan cannot handle.
+	// Insert using raw SQL with SQLite-native datetime format.
+	// GetLastProbeTime now parses the time string manually from sql.NullString.
 	_, err = store.db.Exec(
 		"INSERT INTO results (probe_id, status, status_code, latency_ms, created_at) VALUES (?, ?, ?, ?, datetime('now'))",
 		probe.ID, string(model.StatusSuccess), 200, 100,
@@ -624,20 +623,99 @@ func TestGetLastProbeTime(t *testing.T) {
 		t.Fatalf("expected 1 result, got %d", count)
 	}
 
-	// GetLastProbeTime will return an error due to sql.NullTime.Scan not
-	// handling string values from modernc.org/sqlite driver — this is a
-	// known production code bug, not a test issue.
-	_, err = store.GetLastProbeTime()
-	if err == nil {
-		// If the driver compatibility is fixed, verify the time is returned
-		// (future-proof assertion)
-		lastTime, _ := store.GetLastProbeTime()
-		if lastTime == nil {
-			t.Error("expected time to be returned when results exist")
-		}
+	// GetLastProbeTime should now succeed — scans as NullString and parses manually
+	lastTime, err = store.GetLastProbeTime()
+	if err != nil {
+		t.Fatalf("GetLastProbeTime failed: %v", err)
 	}
-	// When err != nil, the production code bug is exercised — test still passes
-	// as we document the known incompatibility.
+	if lastTime == nil {
+		t.Error("expected time to be returned when results exist")
+	}
+}
+
+func TestParseTimeString(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+	}{
+		{
+			name:  "Go monotonic clock format",
+			input: "2026-06-22 23:59:21.5433074 +0800 CST m=+21.487735701",
+		},
+		{
+			name:  "Go time with timezone no monotonic",
+			input: "2026-06-22 23:59:21.5433074 +0800 CST",
+		},
+		{
+			name:  "Go time with timezone offset only",
+			input: "2026-06-22 23:59:21 +0800",
+		},
+		{
+			name:  "RFC3339",
+			input: "2026-06-22T23:59:21+08:00",
+		},
+		{
+			name:  "RFC3339Nano",
+			input: "2026-06-22T23:59:21.5433074+08:00",
+		},
+		{
+			name:  "SQLite datetime format",
+			input: "2026-06-22 23:59:21",
+		},
+		{
+			name:    "unparseable",
+			input:   "not a time",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseTimeString(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("expected error, got %v", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got.IsZero() {
+				t.Error("expected non-zero time")
+			}
+		})
+	}
+}
+
+func TestGetLastProbeTimeWithMonotonicFormat(t *testing.T) {
+	store := setupTestDB(t)
+	defer store.Close()
+
+	provider := createTestProvider(t, store, "TestProvider")
+	probe := createTestProbe(t, store, provider.ID, "gpt-4")
+
+	// Insert a row with Go's time.Time.String() format (including monotonic clock)
+	goFormat := time.Now().Format("2006-01-02 15:04:05.999999999 -0700 MST")
+	_, err := store.db.Exec(
+		"INSERT INTO results (probe_id, status, status_code, latency_ms, created_at) VALUES (?, ?, ?, ?, ?)",
+		probe.ID, string(model.StatusSuccess), 200, 100, goFormat,
+	)
+	if err != nil {
+		t.Fatalf("failed to insert result: %v", err)
+	}
+
+	lastTime, err := store.GetLastProbeTime()
+	if err != nil {
+		t.Fatalf("GetLastProbeTime failed with Go format: %v", err)
+	}
+	if lastTime == nil {
+		t.Fatal("expected time to be returned")
+	}
+	if lastTime.IsZero() {
+		t.Error("expected non-zero time")
+	}
 }
 
 func TestGetResultsForProbePage(t *testing.T) {
@@ -762,18 +840,21 @@ func TestGetHourlySummary(t *testing.T) {
 	provider := createTestProvider(t, store, "TestProvider")
 	probe := createTestProbe(t, store, provider.ID, "gpt-4")
 
-	// Use raw SQL to insert timestamps in SQLite-native format to avoid
-	// modernc.org/sqlite driver storing RFC3339Nano which SQLite's strftime can't parse.
+	now := time.Now()
+	// Insert results via SaveResult so timestamps use the driver's format
 	for hour := 0; hour < 24; hour++ {
 		for j := 0; j < 2; j++ {
-			status := string(model.StatusSuccess)
+			status := model.StatusSuccess
 			if j == 1 && hour%3 == 0 {
-				status = string(model.StatusError)
+				status = model.StatusError
 			}
-			_, err := store.db.Exec(
-				"INSERT INTO results (probe_id, status, status_code, latency_ms, created_at) VALUES (?, ?, ?, ?, datetime('now', ?))",
-				probe.ID, status, 200, 100, fmt.Sprintf("-%d hours", hour),
-			)
+			err := store.SaveResult(&model.Result{
+				ProbeID:   probe.ID,
+				Status:    status,
+				StatusCode: 200,
+				LatencyMs: 100,
+				CreatedAt: now.Add(-time.Duration(hour) * time.Hour),
+			})
 			if err != nil {
 				t.Fatalf("failed to insert result for hour %d: %v", hour, err)
 			}

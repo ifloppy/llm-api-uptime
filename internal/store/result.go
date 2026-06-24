@@ -4,8 +4,38 @@ import (
 	"database/sql"
 	"fmt"
 	"llm-api-uptime/internal/model"
+	"strings"
 	"time"
 )
+
+// parseTimeString parses a time string that may include Go's monotonic clock reading.
+// Go's time.Time.String() format: "2006-01-02 15:04:05.999999999 -0700 MST m=+0.000000001"
+func parseTimeString(s string) (time.Time, error) {
+	// Strip monotonic clock part if present
+	if idx := strings.Index(s, " m=+"); idx > 0 {
+		s = s[:idx]
+	}
+
+	formats := []string{
+		"2006-01-02 15:04:05.999999999 -0700 MST",
+		"2006-01-02 15:04:05.999999999 -0700",
+		"2006-01-02 15:04:05 -0700 MST",
+		"2006-01-02 15:04:05 -0700",
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02T15:04:05Z",
+		"2006-01-02 15:04:05",
+		"2006-01-02T15:04:05-07:00",
+	}
+
+	for _, format := range formats {
+		if t, err := time.Parse(format, s); err == nil {
+			return t, nil
+		}
+	}
+
+	return time.Time{}, fmt.Errorf("failed to parse time: %s", s)
+}
 
 func (s *Store) SaveResult(r *model.Result) error {
 	result, err := s.db.Exec(
@@ -45,15 +75,20 @@ func (s *Store) GetResultCount() (int, error) {
 }
 
 func (s *Store) GetLastProbeTime() (*time.Time, error) {
-	var lastTime sql.NullTime
-	err := s.db.QueryRow("SELECT MAX(created_at) FROM results").Scan(&lastTime)
+	var lastTimeStr sql.NullString
+	err := s.db.QueryRow("SELECT MAX(created_at) FROM results").Scan(&lastTimeStr)
 	if err != nil {
 		return nil, err
 	}
-	if lastTime.Valid {
-		return &lastTime.Time, nil
+	if !lastTimeStr.Valid || lastTimeStr.String == "" {
+		return nil, nil
 	}
-	return nil, nil
+
+	t, err := parseTimeString(lastTimeStr.String)
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
 }
 
 func (s *Store) GetResultsForProbe(probeID int64, limit int, statusFilter string) ([]model.Result, error) {
@@ -161,30 +196,56 @@ func (s *Store) GetResultsCount(probeID int64, statusFilter string) (int, error)
 }
 
 func (s *Store) GetHourlySummary(probeID int64, hours int) ([]model.HourlySummary, error) {
-	query := `
-		SELECT 
-			strftime('%Y-%m-%d %H:00:00', created_at) as hour,
-			COUNT(*) as total,
-			SUM(CASE WHEN status != 'success' THEN 1 ELSE 0 END) as failed
+	since := time.Now().Add(-time.Duration(hours) * time.Hour)
+
+	rows, err := s.db.Query(`
+		SELECT created_at, status
 		FROM results
-		WHERE probe_id = ? AND created_at >= datetime('now', ?)
-		GROUP BY strftime('%Y-%m-%d %H:00:00', created_at)
-		ORDER BY hour DESC
-	`
-	rows, err := s.db.Query(query, probeID, fmt.Sprintf("-%d hours", hours))
+		WHERE probe_id = ?
+		ORDER BY created_at
+	`, probeID)
 	if err != nil {
 		return nil, fmt.Errorf("get hourly summary: %w", err)
 	}
 	defer rows.Close()
 
-	var summaries []model.HourlySummary
-	for rows.Next() {
-		var hs model.HourlySummary
-		if err := rows.Scan(&hs.Hour, &hs.Total, &hs.Failed); err != nil {
-			return nil, fmt.Errorf("scan hourly summary: %w", err)
-		}
-		summaries = append(summaries, hs)
+	type rawResult struct {
+		CreatedAt time.Time
+		Status    string
 	}
+	var results []rawResult
+	for rows.Next() {
+		var createdAtStr string
+		var status string
+		if err := rows.Scan(&createdAtStr, &status); err != nil {
+			return nil, fmt.Errorf("scan: %w", err)
+		}
+		createdAt, err := parseTimeString(createdAtStr)
+		if err != nil {
+			continue // skip unparseable rows
+		}
+		if createdAt.After(since) {
+			results = append(results, rawResult{CreatedAt: createdAt, Status: status})
+		}
+	}
+
+	hourMap := make(map[string]*model.HourlySummary)
+	for _, r := range results {
+		hourKey := r.CreatedAt.Format("2006-01-02 15:00:00")
+		if _, ok := hourMap[hourKey]; !ok {
+			hourMap[hourKey] = &model.HourlySummary{Hour: hourKey}
+		}
+		hourMap[hourKey].Total++
+		if r.Status != "success" {
+			hourMap[hourKey].Failed++
+		}
+	}
+
+	var summaries []model.HourlySummary
+	for _, hs := range hourMap {
+		summaries = append(summaries, *hs)
+	}
+
 	return summaries, nil
 }
 
@@ -197,6 +258,11 @@ func (s *Store) GetStats(query model.StatsQuery) ([]model.ProviderStats, error) 
 	} else {
 		since = time.Now().Add(-24 * time.Hour)
 	}
+
+	// Format as string for SQLite comparison - Go monotonic clock format
+	// uses "2006-01-02 15:04:05.999999999 -0700 MST m=+..." which SQLite
+	// can't parse, but string comparison works on the prefix.
+	sinceStr := since.Format("2006-01-02 15:04:05")
 
 	rows, err := s.db.Query(`
 		SELECT
@@ -219,7 +285,7 @@ func (s *Store) GetStats(query model.StatsQuery) ([]model.ProviderStats, error) 
 		WHERE r.created_at >= ?
 		GROUP BY p.id, pr.name, p.model
 		ORDER BY pr.name, p.model
-	`, since)
+	`, sinceStr)
 	if err != nil {
 		return nil, fmt.Errorf("get stats: %w", err)
 	}
@@ -280,12 +346,14 @@ func (s *Store) GetStats(query model.StatsQuery) ([]model.ProviderStats, error) 
 }
 
 func (s *Store) GetDowntimePeriods(probeID int64, since time.Time) ([]model.DowntimePeriod, error) {
+	sinceStr := since.Format("2006-01-02 15:04:05")
+
 	rows, err := s.db.Query(`
 		SELECT created_at, status
 		FROM results
 		WHERE probe_id = ? AND created_at >= ?
 		ORDER BY created_at
-	`, probeID, since)
+	`, probeID, sinceStr)
 	if err != nil {
 		return nil, fmt.Errorf("get downtime periods: %w", err)
 	}
@@ -296,10 +364,15 @@ func (s *Store) GetDowntimePeriods(probeID int64, since time.Time) ([]model.Down
 	lastStatus := "success"
 
 	for rows.Next() {
-		var createdAt time.Time
+		var createdAtStr string
 		var status string
-		if err := rows.Scan(&createdAt, &status); err != nil {
+		if err := rows.Scan(&createdAtStr, &status); err != nil {
 			return nil, fmt.Errorf("scan downtime: %w", err)
+		}
+
+		createdAt, err := parseTimeString(createdAtStr)
+		if err != nil {
+			continue // skip unparseable rows
 		}
 
 		if status != "success" && lastStatus == "success" {
