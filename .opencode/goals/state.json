@@ -32,7 +32,7 @@
       "lastAssistantText": "## 覆盖率提升完成\n\n### 覆盖率变化\n\n| 模块 | 之前 | 之后 | 变化 |\n|------|------|------|------|\n| store | 74.6% | 82.1% | +7.5% |\n| web | 67.3% | 78.2% | +10.9% |\n| **总计** | **39.6%** | **42.5%** | **+2.9%** |\n\n### 新增测试用例\n\n**store 模块**：\n- `TestListAllProbes` - 测试列出所有 probes\n- `TestDeleteProbe` - 测试删除单个 probe\n- `TestDeleteProbesByProvider` - 测试按 provider 删除 probes\n- `TestUpdateProbe` - 测试更新 probe\n- `TestGetProbeNotFound` - 测试获取不存在的 probe\n\n**web 模块**：\n- `TestHandleFetchModels` - 测试获取模型列表\n- `TestHandleFetchModelsInvalidID` - 测试无效 ID\n- `TestHandleFetchModelsProviderNotFound` - 测试 provider 不存在\n- `TestHandleListProbesInvalidProviderID` - 测试无效 provider ID\n- `TestHandleCreateProbeInvalidJSON` - 测试无效 JSON\n- `TestHandleDeleteProbeInvalidID` - 测试无效 ID\n- `TestHandleStatsWithDays` - 测试按天统计\n- `TestHandleExportCSVWithDays` - 测试按天导出\n\n### Git 提交\n\n```\nef0db2d test: improve coverage from 39.6% to 42.5%\n9d3506f fix(probe): add API key to probe requests\n86f8ba9 fix(tui): reload providers when fetching models\n7649121 fix(tui): resolve row wrapping and form input issues\n000ca71 fix(tui): resolve key conflicts and display issues\n6cd7d66 feat(tui): complete interactive TUI with full CRUD operations\nda28dfc test: improve coverage from 40% to 62%\n1d525a2 test: add unit tests for all modules\n638fde4 build: add Makefile with build targets\ncc3ff6a feat: initial implementation of LLM API uptime monitor\n```",
       "lastAssistantMessageID": "msg_ee0b6d89c002d2C4H3CripBqro",
       "lastContinueAt": 0,
-      "lastProgressAt": 1782280081654,
+      "lastProgressAt": 1782280152018,
       "noProgressTurns": 0,
       "noToolCallTurns": 0,
       "blockedReason": "",
@@ -719,7 +719,10 @@
         "msg_ef82188ec001t4IKpjtczOwKw4",
         "msg_ef821fa17001g6p6WLdKn9RT1h",
         "msg_ef82227c2001VhLhvcMOLzcVaO",
-        "msg_ef82abf98001vTzsu7sEU8Hcen"
+        "msg_ef82abf98001vTzsu7sEU8Hcen",
+        "msg_ef82bd3b3001MqZd13GSbPUzeu",
+        "msg_ef82c1b97001mdebAB5kZL7qOB",
+        "msg_ef82c4448001eLoLECdzS2HlkJ"
       ],
       "history": [
         {
