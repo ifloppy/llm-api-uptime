@@ -2,6 +2,7 @@ package probe
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -89,7 +90,7 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 
 	content := strings.TrimSpace(acc.Choices[0].Message.Content)
 
-	if content == "" {
+	if !isContentMeaningful(content) {
 		return &model.Result{
 			Status:           model.StatusEmptyContent,
 			StatusCode:       200,
@@ -106,6 +107,23 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 	completionTokens := int(acc.Usage.CompletionTokens)
 	if latency > 0 && completionTokens > 0 {
 		tps = float64(completionTokens) / (float64(latency) / 1000.0)
+	}
+
+	if latency < minReasonableLatencyMs {
+		slog.Warn("probe succeeded unusually fast, possibly cached",
+			"provider", providerName,
+			"model", modelID,
+			"latency_ms", latency,
+		)
+	}
+
+	if completionTokens > 0 && len(content) < 10 {
+		slog.Warn("short content with non-zero token count, possibly inflated",
+			"provider", providerName,
+			"model", modelID,
+			"content_len", len(content),
+			"completion_tokens", completionTokens,
+		)
 	}
 
 	return &model.Result{
