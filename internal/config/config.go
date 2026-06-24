@@ -16,6 +16,7 @@ type Config struct {
 	WebPort          int
 	WebPublic        bool
 	WebPassword      string
+	WebGuestEnabled  bool
 	LogLevel         string
 }
 
@@ -30,6 +31,7 @@ func Load() *Config {
 		WebPort:          8080,
 		WebPublic:        false,
 		WebPassword:      "",
+		WebGuestEnabled:  false,
 		LogLevel:         "info",
 	}
 
@@ -77,6 +79,10 @@ func Load() *Config {
 
 	if v := os.Getenv("WEB_PASSWORD"); v != "" {
 		cfg.WebPassword = v
+	}
+
+	if v := os.Getenv("WEB_GUEST_ENABLED"); v != "" {
+		cfg.WebGuestEnabled = v == "true" || v == "1"
 	}
 
 	if v := os.Getenv("LOG_LEVEL"); v != "" {

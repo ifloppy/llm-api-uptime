@@ -76,7 +76,7 @@ func (s *Server) Start() error {
 		fileServer.ServeHTTP(w, r)
 	})
 
-	authMiddleware := AuthMiddleware(s.config.WebPassword)
+	authMiddleware := AuthMiddleware(s.config.WebPassword, s.config.WebGuestEnabled)
 	wrappedMux := authMiddleware(mux)
 
 	addr := s.config.WebAddr()
@@ -93,6 +93,9 @@ func (s *Server) Start() error {
 
 	if s.config.WebPassword != "" {
 		s.logger.Info("authentication enabled")
+		if s.config.WebGuestEnabled {
+			s.logger.Info("guest access enabled (read-only)")
+		}
 	} else {
 		s.logger.Warn("authentication disabled - not recommended for public access")
 	}

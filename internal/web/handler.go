@@ -62,17 +62,18 @@ func readJSON(r *http.Request, v interface{}) error {
 
 func (h *Handler) handleStatus(w http.ResponseWriter, r *http.Request) {
 	lastProbeTime, _ := h.store.GetLastProbeTime()
-	
+
 	response := map[string]interface{}{
 		"running":  h.engine.IsRunning(),
 		"interval": h.config.ProbeInterval.String(),
 		"db_path":  h.config.DBPath,
+		"guest":    isGuest(r),
 	}
-	
+
 	if lastProbeTime != nil {
 		response["last_probe_time"] = lastProbeTime.Format(time.RFC3339)
 	}
-	
+
 	writeJSON(w, http.StatusOK, response)
 }
 
@@ -82,6 +83,29 @@ func (h *Handler) handleListProviders(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+
+	if isGuest(r) {
+		type guestProvider struct {
+			ID        int64       `json:"id"`
+			Name      string      `json:"name"`
+			APIType   model.APIType `json:"api_type"`
+			MaxTokens int         `json:"max_tokens"`
+			Enabled   bool        `json:"enabled"`
+		}
+		guest := make([]guestProvider, len(providers))
+		for i, p := range providers {
+			guest[i] = guestProvider{
+				ID:        p.ID,
+				Name:      p.Name,
+				APIType:   p.APIType,
+				MaxTokens: p.MaxTokens,
+				Enabled:   p.Enabled,
+			}
+		}
+		writeJSON(w, http.StatusOK, guest)
+		return
+	}
+
 	writeJSON(w, http.StatusOK, providers)
 }
 
@@ -299,6 +323,11 @@ func (h *Handler) handleStats(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleExportCSV(w http.ResponseWriter, r *http.Request) {
+	if isGuest(r) {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+
 	hoursStr := r.URL.Query().Get("hours")
 	daysStr := r.URL.Query().Get("days")
 
@@ -355,6 +384,11 @@ func (h *Handler) handleDeleteResult(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleGetProbeResults(w http.ResponseWriter, r *http.Request) {
+	if isGuest(r) {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+
 	idStr := r.PathValue("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {

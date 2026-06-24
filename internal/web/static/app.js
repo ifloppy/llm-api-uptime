@@ -1,5 +1,6 @@
 const API_BASE = '/api';
 let currentPage = 'dashboard';
+let isGuest = false;
 
 document.addEventListener('DOMContentLoaded', () => {
     initNavigation();
@@ -60,6 +61,10 @@ async function apiCall(endpoint, method = 'GET', body = null) {
     
     const response = await fetch(API_BASE + endpoint, options);
     if (response.status === 401) {
+        if (isGuest) {
+            const error = await response.json();
+            throw new Error(error.error || 'unauthorized');
+        }
         localStorage.removeItem('auth_token');
         window.location.href = '/login.html';
         return;
@@ -74,17 +79,27 @@ async function apiCall(endpoint, method = 'GET', body = null) {
 async function loadDashboard() {
     try {
         const status = await apiCall('/status');
+        isGuest = !!status.guest;
+
         const statusEl = document.getElementById('engineStatus');
         statusEl.textContent = status.running ? 'Running' : 'Stopped';
         statusEl.className = `status-badge ${status.running ? 'success' : 'danger'}`;
-        
+
+        const guestIndicator = document.getElementById('guestIndicator');
+        if (guestIndicator) {
+            guestIndicator.style.display = isGuest ? 'inline-block' : 'none';
+        }
+
+        const triggerBtn = document.getElementById('triggerBtn');
+        if (triggerBtn) triggerBtn.style.display = isGuest ? 'none' : '';
+
         const lastProbeEl = document.getElementById('lastProbeTime');
         if (status.last_probe_time) {
             lastProbeEl.textContent = new Date(status.last_probe_time).toLocaleString();
         } else {
             lastProbeEl.textContent = 'Never';
         }
-        
+
         const stats = await apiCall('/stats?hours=24');
         renderModelCards(stats);
         renderRecentActivity(stats);
@@ -95,12 +110,12 @@ async function loadDashboard() {
 
 function renderModelCards(stats) {
     const grid = document.getElementById('modelCards');
-    
+
     if (stats.length === 0) {
         grid.innerHTML = '<div class="empty-state">No statistics yet</div>';
         return;
     }
-    
+
     let html = '';
     stats.forEach(ps => {
         ps.models.forEach(ms => {
@@ -108,9 +123,10 @@ function renderModelCards(stats) {
             const rate = ms.success_rate;
             const rateColor = rate >= 99 ? '#10b981' : (rate >= 95 ? '#f59e0b' : '#ef4444');
             const tpsColor = ms.avg_tps >= 10 ? '#10b981' : (ms.avg_tps >= 1 ? '#f59e0b' : '#ef4444');
-            
+            const clickAttr = isGuest ? '' : `onclick="showProbeDetails(${ms.probe_id || 0}, '${escapeHtml(ms.provider_name)}', '${escapeHtml(ms.model)}')"`;
+
             html += `
-                <div class="model-card" onclick="showProbeDetails(${ms.probe_id || 0}, '${escapeHtml(ms.provider_name)}', '${escapeHtml(ms.model)}')">
+                <div class="model-card" ${clickAttr}>
                     <div class="mc-header">
                         <span class="mc-icon">${icon}</span>
                         <div class="mc-title">
@@ -140,7 +156,7 @@ function renderModelCards(stats) {
             if (ms.probe_id) loadTimeline(ms.probe_id);
         });
     });
-    
+
     grid.innerHTML = html;
 }
 
@@ -198,26 +214,40 @@ async function loadProviders() {
     try {
         const providers = await apiCall('/providers');
         const tbody = document.getElementById('providersTable');
-        
+
+        const addBtn = document.getElementById('addProviderBtn');
+        if (addBtn) addBtn.style.display = isGuest ? 'none' : '';
+
         if (providers.length === 0) {
             tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No providers configured</td></tr>';
             return;
         }
-        
-        tbody.innerHTML = providers.map(p => `
-            <tr>
-                <td>${escapeHtml(p.name)}</td>
-                <td>${escapeHtml(p.base_url)}</td>
-                <td>${p.api_type}</td>
-                <td>${p.max_tokens || 2}</td>
-                <td><span class="status-badge ${p.enabled ? 'success' : 'neutral'}">${p.enabled ? 'Active' : 'Disabled'}</span></td>
-                <td>
-                    <button class="btn btn-sm btn-secondary" onclick="editProvider(${p.id})">Edit</button>
-                    <button class="btn btn-sm btn-secondary" onclick="fetchModels(${p.id})">Fetch Models</button>
-                    <button class="btn btn-sm btn-danger" onclick="deleteProvider(${p.id})">Delete</button>
-                </td>
-            </tr>
-        `).join('');
+
+        if (isGuest) {
+            tbody.innerHTML = providers.map(p => `
+                <tr>
+                    <td>${escapeHtml(p.name)}</td>
+                    <td>${p.api_type}</td>
+                    <td>${p.max_tokens || 2}</td>
+                    <td><span class="status-badge ${p.enabled ? 'success' : 'neutral'}">${p.enabled ? 'Active' : 'Disabled'}</span></td>
+                </tr>
+            `).join('');
+        } else {
+            tbody.innerHTML = providers.map(p => `
+                <tr>
+                    <td>${escapeHtml(p.name)}</td>
+                    <td>${escapeHtml(p.base_url)}</td>
+                    <td>${p.api_type}</td>
+                    <td>${p.max_tokens || 2}</td>
+                    <td><span class="status-badge ${p.enabled ? 'success' : 'neutral'}">${p.enabled ? 'Active' : 'Disabled'}</span></td>
+                    <td>
+                        <button class="btn btn-sm btn-secondary" onclick="editProvider(${p.id})">Edit</button>
+                        <button class="btn btn-sm btn-secondary" onclick="fetchModels(${p.id})">Fetch Models</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteProvider(${p.id})">Delete</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
     } catch (error) {
         showToast('Failed to load providers', 'error');
     }
@@ -406,22 +436,35 @@ async function loadModels() {
     try {
         const probes = await apiCall('/probes');
         const tbody = document.getElementById('modelsTable');
-        
+
+        const addBtn = document.getElementById('addModelBtn');
+        if (addBtn) addBtn.style.display = isGuest ? 'none' : '';
+
         if (probes.length === 0) {
             tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No models configured</td></tr>';
             return;
         }
-        
-        tbody.innerHTML = probes.map(p => `
-            <tr>
-                <td>${escapeHtml(p.provider_name)}</td>
-                <td>${escapeHtml(p.model)}</td>
-                <td><span class="status-badge ${p.enabled ? 'success' : 'neutral'}">${p.enabled ? 'Active' : 'Disabled'}</span></td>
-                <td>
-                    <button class="btn btn-sm btn-danger" onclick="deleteProbe(${p.id})">Delete</button>
-                </td>
-            </tr>
-        `).join('');
+
+        if (isGuest) {
+            tbody.innerHTML = probes.map(p => `
+                <tr>
+                    <td>${escapeHtml(p.provider_name)}</td>
+                    <td>${escapeHtml(p.model)}</td>
+                    <td><span class="status-badge ${p.enabled ? 'success' : 'neutral'}">${p.enabled ? 'Active' : 'Disabled'}</span></td>
+                </tr>
+            `).join('');
+        } else {
+            tbody.innerHTML = probes.map(p => `
+                <tr>
+                    <td>${escapeHtml(p.provider_name)}</td>
+                    <td>${escapeHtml(p.model)}</td>
+                    <td><span class="status-badge ${p.enabled ? 'success' : 'neutral'}">${p.enabled ? 'Active' : 'Disabled'}</span></td>
+                    <td>
+                        <button class="btn btn-sm btn-danger" onclick="deleteProbe(${p.id})">Delete</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
     } catch (error) {
         showToast('Failed to load models', 'error');
     }
@@ -494,32 +537,39 @@ async function loadStats() {
     try {
         const stats = await apiCall(`/stats?hours=${hours}`);
         const tbody = document.getElementById('statsTable');
-        
+
+        const clearBtn = document.getElementById('clearStatsBtn');
+        if (clearBtn) clearBtn.style.display = isGuest ? 'none' : '';
+        const exportBtn = document.getElementById('exportCsvBtn');
+        if (exportBtn) exportBtn.style.display = isGuest ? 'none' : '';
+
         if (stats.length === 0) {
             tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No statistics available</td></tr>';
             return;
         }
-        
+
         let html = '';
         stats.forEach(ps => {
             ps.models.forEach(ms => {
                 const icon = getStatusIcon(ms.last_status, ms.last_tps);
                 const tpsClass = ms.avg_tps >= 10 ? 'rate-good' : (ms.avg_tps >= 1 ? 'rate-warning' : 'rate-bad');
+                const clickAttr = isGuest ? '' : `onclick="showProbeDetails(${ms.probe_id || 0}, '${escapeHtml(ms.provider_name)}', '${escapeHtml(ms.model)}')"` ;
+                const cursorStyle = isGuest ? '' : 'style="cursor: pointer;"';
                 html += `
                     <tr>
-                        <td style="text-align:center;font-size:1.2em" onclick="showProbeDetails(${ms.probe_id || 0}, '${escapeHtml(ms.provider_name)}', '${escapeHtml(ms.model)}')">${icon}</td>
-                        <td onclick="showProbeDetails(${ms.probe_id || 0}, '${escapeHtml(ms.provider_name)}', '${escapeHtml(ms.model)}')" style="cursor: pointer;">${escapeHtml(ms.provider_name)}</td>
-                        <td onclick="showProbeDetails(${ms.probe_id || 0}, '${escapeHtml(ms.provider_name)}', '${escapeHtml(ms.model)}')" style="cursor: pointer;">${escapeHtml(ms.model)}</td>
-                        <td onclick="showProbeDetails(${ms.probe_id || 0}, '${escapeHtml(ms.provider_name)}', '${escapeHtml(ms.model)}')" style="cursor: pointer;">${ms.total_probes}</td>
-                        <td onclick="showProbeDetails(${ms.probe_id || 0}, '${escapeHtml(ms.provider_name)}', '${escapeHtml(ms.model)}')" style="cursor: pointer;"><span class="${getRateClass(ms.success_rate)}">${ms.success_rate.toFixed(1)}%</span></td>
-                        <td onclick="showProbeDetails(${ms.probe_id || 0}, '${escapeHtml(ms.provider_name)}', '${escapeHtml(ms.model)}')" style="cursor: pointer;">${ms.avg_latency_ms.toFixed(0)}ms</td>
-                        <td onclick="showProbeDetails(${ms.probe_id || 0}, '${escapeHtml(ms.provider_name)}', '${escapeHtml(ms.model)}')" style="cursor: pointer;"><span class="${tpsClass}">${ms.avg_tps.toFixed(2)}</span></td>
-                        <td><button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteModel(${ms.probe_id || 0}, '${escapeHtml(ms.provider_name)}', '${escapeHtml(ms.model)}')">Delete</button></td>
+                        <td style="text-align:center;font-size:1.2em" ${clickAttr}>${icon}</td>
+                        <td ${cursorStyle} ${clickAttr}>${escapeHtml(ms.provider_name)}</td>
+                        <td ${cursorStyle} ${clickAttr}>${escapeHtml(ms.model)}</td>
+                        <td ${cursorStyle} ${clickAttr}>${ms.total_probes}</td>
+                        <td ${cursorStyle} ${clickAttr}><span class="${getRateClass(ms.success_rate)}">${ms.success_rate.toFixed(1)}%</span></td>
+                        <td ${cursorStyle} ${clickAttr}>${ms.avg_latency_ms.toFixed(0)}ms</td>
+                        <td ${cursorStyle} ${clickAttr}><span class="${tpsClass}">${ms.avg_tps.toFixed(2)}</span></td>
+                        ${isGuest ? '' : `<td><button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteModel(${ms.probe_id || 0}, '${escapeHtml(ms.provider_name)}', '${escapeHtml(ms.model)}')">Delete</button></td>`}
                     </tr>
                 `;
             });
         });
-        
+
         tbody.innerHTML = html;
     } catch (error) {
         showToast('Failed to load statistics', 'error');

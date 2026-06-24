@@ -1,13 +1,27 @@
 package web
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"net/http"
 	"strings"
 )
 
-func AuthMiddleware(password string) func(http.Handler) http.Handler {
+type contextKey string
+
+const guestKey contextKey = "guest"
+
+func isGuest(r *http.Request) bool {
+	v, _ := r.Context().Value(guestKey).(bool)
+	return v
+}
+
+func markGuest(r *http.Request) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), guestKey, true))
+}
+
+func AuthMiddleware(password string, guestEnabled bool) func(http.Handler) http.Handler {
 	if password == "" {
 		return func(next http.Handler) http.Handler {
 			return next
@@ -47,26 +61,52 @@ func AuthMiddleware(password string) func(http.Handler) http.Handler {
 					}
 				}
 
+				if guestEnabled {
+					next.ServeHTTP(w, markGuest(r))
+					return
+				}
+
 				http.Redirect(w, r, "/login.html", http.StatusTemporaryRedirect)
 				return
 			}
 
 			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" {
-				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			if authHeader != "" {
+				token := strings.TrimPrefix(authHeader, "Bearer ")
+				hash := sha256.Sum256([]byte(token))
+				if subtle.ConstantTimeCompare(hash[:], expectedHash[:]) == 1 {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+
+			if guestEnabled && r.Method == http.MethodGet && isGuestAllowedPath(r.URL.Path) {
+				next.ServeHTTP(w, markGuest(r))
 				return
 			}
 
-			token := strings.TrimPrefix(authHeader, "Bearer ")
-			hash := sha256.Sum256([]byte(token))
-			if subtle.ConstantTimeCompare(hash[:], expectedHash[:]) != 1 {
-				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid token"})
-				return
-			}
-
-			next.ServeHTTP(w, r)
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		})
 	}
+}
+
+func isGuestAllowedPath(path string) bool {
+	allowed := []string{
+		"/api/status",
+		"/api/stats",
+		"/api/probes",
+		"/api/providers",
+		"/api/export/csv",
+	}
+	for _, a := range allowed {
+		if path == a {
+			return true
+		}
+	}
+	if strings.HasPrefix(path, "/api/probes/") && strings.HasSuffix(path, "/hourly") {
+		return true
+	}
+	return false
 }
 
 func isStaticFile(path string) bool {

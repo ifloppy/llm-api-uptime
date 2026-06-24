@@ -41,6 +41,7 @@
                     <h1>Dashboard</h1>
                     <div class="header-meta">
                         <span class="status-badge" id="engineStatus">Loading...</span>
+                        <span id="guestIndicator" class="status-badge neutral" style="display:none;margin-left:8px">Guest Mode</span>
                         <span class="muted" style="margin-left:12px">Last probe: <strong id="lastProbeTime">-</strong></span>
                     </div>
                 </div>
@@ -54,7 +55,7 @@
             <div id="providers" class="page">
                 <div class="page-header">
                     <h1>Providers</h1>
-                    <button class="btn btn-primary" onclick="showAddProvider()">Add Provider</button>
+                    <button id="addProviderBtn" class="btn btn-primary" onclick="showAddProvider()">Add Provider</button>
                 </div>
                 <div class="card">
                     <table class="data-table">
@@ -76,7 +77,7 @@
             <div id="models" class="page">
                 <div class="page-header">
                     <h1>Models</h1>
-                    <button class="btn btn-primary" onclick="showAddModel()">Add Model</button>
+                    <button id="addModelBtn" class="btn btn-primary" onclick="showAddModel()">Add Model</button>
                 </div>
                 <div class="card">
                     <table class="data-table">
@@ -102,8 +103,8 @@
                             <option value="168">Last 7 Days</option>
                             <option value="720">Last 30 Days</option>
                         </select>
-                        <button class="btn btn-secondary" onclick="exportCSV()">Export CSV</button>
-                        <button class="btn btn-danger" onclick="clearStats()">Clear Stats</button>
+                        <button id="exportCsvBtn" class="btn btn-secondary" onclick="exportCSV()">Export CSV</button>
+                        <button id="clearStatsBtn" class="btn btn-danger" onclick="clearStats()">Clear Stats</button>
                     </div>
                 </div>
                 <div class="card">
