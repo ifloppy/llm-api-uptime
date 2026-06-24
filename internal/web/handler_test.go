@@ -768,3 +768,263 @@ func TestReadJSONInvalid(t *testing.T) {
 		t.Error("expected error for invalid JSON")
 	}
 }
+
+func TestHandleClearStats(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	provider := createTestProviderInDB(t, db, "TestProvider")
+	probe := &model.Probe{ProviderID: provider.ID, Model: "gpt-4", Enabled: true}
+	db.CreateProbe(probe)
+
+	db.SaveResult(&model.Result{
+		ProbeID:   probe.ID,
+		Status:    model.StatusSuccess,
+		StatusCode: 200,
+		LatencyMs: 100,
+		CreatedAt: time.Now(),
+	})
+
+	req := httptest.NewRequest("DELETE", "/api/stats", nil)
+	rec := httptest.NewRecorder()
+
+	handler.handleClearStats(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rec.Code)
+	}
+
+	var resp map[string]string
+	json.NewDecoder(rec.Body).Decode(&resp)
+
+	if resp["status"] != "cleared" {
+		t.Errorf("expected status 'cleared', got %q", resp["status"])
+	}
+}
+
+func TestHandleDeleteResult(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	provider := createTestProviderInDB(t, db, "TestProvider")
+	probe := &model.Probe{ProviderID: provider.ID, Model: "gpt-4", Enabled: true}
+	db.CreateProbe(probe)
+
+	db.SaveResult(&model.Result{
+		ProbeID:   probe.ID,
+		Status:    model.StatusSuccess,
+		StatusCode: 200,
+		LatencyMs: 100,
+		CreatedAt: time.Now(),
+	})
+
+	req := httptest.NewRequest("DELETE", "/api/results/1", nil)
+	req.SetPathValue("id", "1")
+	rec := httptest.NewRecorder()
+
+	handler.handleDeleteResult(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rec.Code)
+	}
+
+	var resp map[string]string
+	json.NewDecoder(rec.Body).Decode(&resp)
+
+	if resp["status"] != "deleted" {
+		t.Errorf("expected status 'deleted', got %q", resp["status"])
+	}
+}
+
+func TestHandleDeleteResultInvalidID(t *testing.T) {
+	handler, _ := setupTestHandler(t)
+
+	req := httptest.NewRequest("DELETE", "/api/results/invalid", nil)
+	req.SetPathValue("id", "invalid")
+	rec := httptest.NewRecorder()
+
+	handler.handleDeleteResult(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestHandleGetProbeResults(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	provider := createTestProviderInDB(t, db, "TestProvider")
+	probe := &model.Probe{ProviderID: provider.ID, Model: "gpt-4", Enabled: true}
+	db.CreateProbe(probe)
+
+	db.SaveResult(&model.Result{
+		ProbeID:   probe.ID,
+		Status:    model.StatusSuccess,
+		StatusCode: 200,
+		LatencyMs: 100,
+		CreatedAt: time.Now(),
+	})
+
+	db.SaveResult(&model.Result{
+		ProbeID:   probe.ID,
+		Status:    model.StatusError,
+		StatusCode: 500,
+		LatencyMs: 200,
+		CreatedAt: time.Now(),
+	})
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/probes/%d/results", probe.ID), nil)
+	req.SetPathValue("id", fmt.Sprintf("%d", probe.ID))
+	rec := httptest.NewRecorder()
+
+	handler.handleGetProbeResults(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rec.Code)
+	}
+
+	var resp map[string]interface{}
+	json.NewDecoder(rec.Body).Decode(&resp)
+
+	results, ok := resp["results"].([]interface{})
+	if !ok {
+		t.Fatal("expected results array in response")
+	}
+	if len(results) != 2 {
+		t.Errorf("expected 2 results, got %d", len(results))
+	}
+
+	if resp["total"].(float64) != 2 {
+		t.Errorf("expected total 2, got %v", resp["total"])
+	}
+}
+
+func TestHandleGetProbeResultsInvalidID(t *testing.T) {
+	handler, _ := setupTestHandler(t)
+
+	req := httptest.NewRequest("GET", "/api/probes/invalid/results", nil)
+	req.SetPathValue("id", "invalid")
+	rec := httptest.NewRecorder()
+
+	handler.handleGetProbeResults(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestHandleGetProbeResultsGuest(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	provider := createTestProviderInDB(t, db, "TestProvider")
+	probe := &model.Probe{ProviderID: provider.ID, Model: "gpt-4", Enabled: true}
+	db.CreateProbe(probe)
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/probes/%d/results", probe.ID), nil)
+	req.SetPathValue("id", fmt.Sprintf("%d", probe.ID))
+	req = markGuest(req)
+	rec := httptest.NewRecorder()
+
+	handler.handleGetProbeResults(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rec.Code)
+	}
+}
+
+func TestHandleGetHourlySummary(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	provider := createTestProviderInDB(t, db, "TestProvider")
+	probe := &model.Probe{ProviderID: provider.ID, Model: "gpt-4", Enabled: true}
+	db.CreateProbe(probe)
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/probes/%d/hourly", probe.ID), nil)
+	req.SetPathValue("id", fmt.Sprintf("%d", probe.ID))
+	rec := httptest.NewRecorder()
+
+	handler.handleGetHourlySummary(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rec.Code)
+	}
+
+	var resp []interface{}
+	json.NewDecoder(rec.Body).Decode(&resp)
+
+	if len(resp) != 0 {
+		t.Errorf("expected 0 summary entries, got %d", len(resp))
+	}
+}
+
+func TestHandleGetHourlySummaryInvalidID(t *testing.T) {
+	handler, _ := setupTestHandler(t)
+
+	req := httptest.NewRequest("GET", "/api/probes/invalid/hourly", nil)
+	req.SetPathValue("id", "invalid")
+	rec := httptest.NewRecorder()
+
+	handler.handleGetHourlySummary(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestHandleListProvidersGuest(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	createTestProviderInDB(t, db, "Provider A")
+	createTestProviderInDB(t, db, "Provider B")
+
+	req := httptest.NewRequest("GET", "/api/providers", nil)
+	req = markGuest(req)
+	rec := httptest.NewRecorder()
+
+	handler.handleListProviders(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rec.Code)
+	}
+
+	var providers []map[string]interface{}
+	json.NewDecoder(rec.Body).Decode(&providers)
+
+	if len(providers) != 2 {
+		t.Fatalf("expected 2 providers, got %d", len(providers))
+	}
+
+	// Guest should NOT see base_url or api_key
+	for _, p := range providers {
+		if _, ok := p["base_url"]; ok {
+			t.Error("guest should not see base_url field")
+		}
+		if _, ok := p["api_key"]; ok {
+			t.Error("guest should not see api_key field")
+		}
+		// Guest SHOULD see id, name, api_type, max_tokens, enabled
+		if _, ok := p["id"]; !ok {
+			t.Error("guest should see id field")
+		}
+		if _, ok := p["name"]; !ok {
+			t.Error("guest should see name field")
+		}
+	}
+}
+
+func TestHandleStatusGuest(t *testing.T) {
+	handler, _ := setupTestHandler(t)
+
+	req := httptest.NewRequest("GET", "/api/status", nil)
+	req = markGuest(req)
+	rec := httptest.NewRecorder()
+
+	handler.handleStatus(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rec.Code)
+	}
+
+	var resp map[string]interface{}
+	json.NewDecoder(rec.Body).Decode(&resp)
+
+	guest, ok := resp["guest"].(bool)
+	if !ok {
+		t.Fatal("expected guest field in response")
+	}
+	if !guest {
+		t.Error("expected guest to be true")
+	}
+}
