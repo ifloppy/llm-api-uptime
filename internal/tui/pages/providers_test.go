@@ -7,6 +7,7 @@ import (
 
 	"llm-api-uptime/internal/model"
 	"llm-api-uptime/internal/store"
+	"llm-api-uptime/internal/tui/components"
 )
 
 func TestNewProviders(t *testing.T) {
@@ -314,4 +315,221 @@ func testContains(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func setupTestStore(t *testing.T) *store.Store {
+	t.Helper()
+	db, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create test db: %v", err)
+	}
+	return db
+}
+
+func createTestProvider(t *testing.T, db *store.Store, name string) *model.Provider {
+	t.Helper()
+	provider := &model.Provider{
+		Name:    name,
+		BaseURL: "http://test.com",
+		APIKey:  "test-key",
+		APIType: model.APITypeOpenAI,
+		Enabled: true,
+	}
+	if err := db.CreateProvider(provider); err != nil {
+		t.Fatalf("failed to create provider: %v", err)
+	}
+	return provider
+}
+
+func createTestProbe(t *testing.T, db *store.Store, providerID int64, modelName string) *model.Probe {
+	t.Helper()
+	probe := &model.Probe{
+		ProviderID: providerID,
+		Model:      modelName,
+		Enabled:    true,
+	}
+	if err := db.CreateProbe(probe); err != nil {
+		t.Fatalf("failed to create probe: %v", err)
+	}
+	return probe
+}
+
+func TestProvidersFormSubmit(t *testing.T) {
+	db := setupTestStore(t)
+	defer db.Close()
+
+	p := NewProviders(db)
+
+	// Enter form mode
+	p.showAddForm()
+	if p.mode != "form" {
+		t.Fatal("expected form mode")
+	}
+
+	// Simulate form submission
+	msg := components.FormSubmitMsg{
+		Values: map[string]string{
+			"Name":       "NewProvider",
+			"Base URL":   "http://test.com",
+			"API Key":    "test-key",
+			"API Type":   "openai",
+			"Max Tokens": "10",
+		},
+	}
+	result, _ := p.handleFormSubmit(msg)
+	providers := result.(*Providers)
+
+	// Verify provider was created
+	if providers.mode != "normal" {
+		t.Error("expected normal mode after submit")
+	}
+	if providers.messageTyp != "success" {
+		t.Errorf("expected success message type, got %q", providers.messageTyp)
+	}
+
+	// Verify provider exists in DB
+	list, _ := db.ListProviders()
+	found := false
+	for _, prov := range list {
+		if prov.Name == "NewProvider" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected provider to be created")
+	}
+}
+
+func TestProvidersFormSubmitInvalid(t *testing.T) {
+	db := setupTestStore(t)
+	defer db.Close()
+
+	p := NewProviders(db)
+	p.showAddForm()
+
+	msg := components.FormSubmitMsg{
+		Values: map[string]string{
+			"Name":     "",
+			"Base URL": "http://test.com",
+			"API Key":  "test-key",
+			"API Type": "openai",
+		},
+	}
+	result, _ := p.handleFormSubmit(msg)
+	providers := result.(*Providers)
+
+	if providers.messageTyp != "error" {
+		t.Error("expected error message for invalid input")
+	}
+	if providers.mode != "normal" {
+		t.Errorf("expected normal mode after invalid submit, got %q", providers.mode)
+	}
+}
+
+func TestProvidersFormCancel(t *testing.T) {
+	db := setupTestStore(t)
+	defer db.Close()
+
+	p := NewProviders(db)
+	p.showAddForm()
+
+	result, _ := p.updateForm(components.FormCancelMsg{})
+	providers := result.(*Providers)
+
+	if providers.mode != "normal" {
+		t.Error("expected normal mode after cancel")
+	}
+	if providers.form != nil {
+		t.Error("expected form to be nil after cancel")
+	}
+}
+
+func TestProvidersDeleteConfirm(t *testing.T) {
+	db := setupTestStore(t)
+	defer db.Close()
+
+	provider := createTestProvider(t, db, "ToDelete")
+	p := NewProviders(db)
+	p.showDeleteConfirm()
+
+	// Confirm delete
+	result, _ := p.updateConfirm(components.ConfirmMsg{Confirmed: true})
+	providers := result.(*Providers)
+
+	if providers.mode != "normal" {
+		t.Error("expected normal mode after confirm")
+	}
+	if providers.messageTyp != "success" {
+		t.Errorf("expected success message type, got %q", providers.messageTyp)
+	}
+
+	// Verify provider was deleted
+	_, err := db.GetProvider(provider.ID)
+	if err == nil {
+		t.Error("expected provider to be deleted")
+	}
+}
+
+func TestProvidersEditFormSubmit(t *testing.T) {
+	db := setupTestStore(t)
+	defer db.Close()
+
+	provider := createTestProvider(t, db, "OldName")
+	p := NewProviders(db)
+	p.showEditForm()
+
+	msg := components.FormSubmitMsg{
+		Values: map[string]string{
+			"Name":       "UpdatedName",
+			"Base URL":   "http://updated.com",
+			"API Key":    "updated-key",
+			"API Type":   "anthropic",
+			"Max Tokens": "5",
+		},
+	}
+	result, _ := p.handleFormSubmit(msg)
+	providers := result.(*Providers)
+
+	if providers.mode != "normal" {
+		t.Error("expected normal mode after edit submit")
+	}
+	if providers.messageTyp != "success" {
+		t.Errorf("expected success message type, got %q", providers.messageTyp)
+	}
+
+	// Verify provider was updated
+	updated, err := db.GetProvider(provider.ID)
+	if err != nil {
+		t.Fatalf("failed to get updated provider: %v", err)
+	}
+	if updated.Name != "UpdatedName" {
+		t.Errorf("expected name 'UpdatedName', got %q", updated.Name)
+	}
+	if updated.BaseURL != "http://updated.com" {
+		t.Errorf("expected base URL 'http://updated.com', got %q", updated.BaseURL)
+	}
+}
+
+func TestProvidersDeleteCancel(t *testing.T) {
+	db := setupTestStore(t)
+	defer db.Close()
+
+	createTestProvider(t, db, "KeepMe")
+	p := NewProviders(db)
+	p.showDeleteConfirm()
+
+	// Cancel delete
+	result, _ := p.updateConfirm(components.ConfirmMsg{Confirmed: false})
+	providers := result.(*Providers)
+
+	if providers.mode != "normal" {
+		t.Error("expected normal mode after cancel")
+	}
+
+	// Verify provider still exists
+	list, _ := db.ListProviders()
+	if len(list) != 1 {
+		t.Errorf("expected 1 provider, got %d", len(list))
+	}
 }

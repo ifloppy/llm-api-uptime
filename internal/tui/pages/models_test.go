@@ -7,6 +7,7 @@ import (
 
 	"llm-api-uptime/internal/model"
 	"llm-api-uptime/internal/store"
+	"llm-api-uptime/internal/tui/components"
 )
 
 func TestNewModels(t *testing.T) {
@@ -335,4 +336,158 @@ func modelsContains(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func TestModelsFormSubmit(t *testing.T) {
+	db := setupTestStore(t)
+	defer db.Close()
+
+	provider := createTestProvider(t, db, "TestProvider")
+	m := NewModels(db)
+	m.showAddForm()
+
+	msg := components.FormSubmitMsg{
+		Values: map[string]string{
+			"Provider":   "TestProvider",
+			"Model Name": "gpt-4",
+		},
+	}
+	result, _ := m.handleFormSubmit(msg)
+	models := result.(*Models)
+
+	if models.mode != "normal" {
+		t.Error("expected normal mode after submit")
+	}
+	if models.messageTyp != "success" {
+		t.Errorf("expected success message type, got %q", models.messageTyp)
+	}
+
+	// Verify probe exists
+	probes, _ := db.ListProbes(provider.ID)
+	found := false
+	for _, p := range probes {
+		if p.Model == "gpt-4" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected probe to be created")
+	}
+}
+
+func TestModelsFormSubmitInvalidProvider(t *testing.T) {
+	db := setupTestStore(t)
+	defer db.Close()
+
+	createTestProvider(t, db, "TestProvider")
+	m := NewModels(db)
+	m.showAddForm()
+
+	msg := components.FormSubmitMsg{
+		Values: map[string]string{
+			"Provider":   "NonExistent",
+			"Model Name": "gpt-4",
+		},
+	}
+	result, _ := m.handleFormSubmit(msg)
+	models := result.(*Models)
+
+	if models.messageTyp != "error" {
+		t.Errorf("expected error message type, got %q", models.messageTyp)
+	}
+	if models.mode != "normal" {
+		t.Errorf("expected normal mode, got %q", models.mode)
+	}
+}
+
+func TestModelsFormCancel(t *testing.T) {
+	db := setupTestStore(t)
+	defer db.Close()
+
+	createTestProvider(t, db, "TestProvider")
+	m := NewModels(db)
+	m.showAddForm()
+
+	result, _ := m.updateForm(components.FormCancelMsg{})
+	models := result.(*Models)
+
+	if models.mode != "normal" {
+		t.Error("expected normal mode after cancel")
+	}
+	if models.form != nil {
+		t.Error("expected form to be nil after cancel")
+	}
+}
+
+func TestModelsDeleteConfirm(t *testing.T) {
+	db := setupTestStore(t)
+	defer db.Close()
+
+	provider := createTestProvider(t, db, "TestProvider")
+	createTestProbe(t, db, provider.ID, "gpt-4")
+
+	m := NewModels(db)
+	m.cursor = 0
+	m.showDeleteConfirm()
+
+	// Confirm delete
+	result, _ := m.updateConfirm(components.ConfirmMsg{Confirmed: true})
+	models := result.(*Models)
+
+	if models.mode != "normal" {
+		t.Error("expected normal mode after confirm")
+	}
+	if models.messageTyp != "success" {
+		t.Errorf("expected success message type, got %q", models.messageTyp)
+	}
+}
+
+func TestModelsDeleteCancel(t *testing.T) {
+	db := setupTestStore(t)
+	defer db.Close()
+
+	provider := createTestProvider(t, db, "TestProvider")
+	createTestProbe(t, db, provider.ID, "gpt-4")
+
+	m := NewModels(db)
+	m.cursor = 0
+	m.showDeleteConfirm()
+
+	// Cancel delete
+	result, _ := m.updateConfirm(components.ConfirmMsg{Confirmed: false})
+	models := result.(*Models)
+
+	if models.mode != "normal" {
+		t.Error("expected normal mode after cancel")
+	}
+
+	// Verify probe still exists
+	probes, _ := db.ListProbes(provider.ID)
+	if len(probes) != 1 {
+		t.Errorf("expected 1 probe, got %d", len(probes))
+	}
+}
+
+func TestModelsShowFetchForm(t *testing.T) {
+	db := setupTestStore(t)
+	defer db.Close()
+
+	// No providers -> error
+	m := NewModels(db)
+	m.showFetchForm()
+	if m.message != "No providers configured. Add a provider first." {
+		t.Errorf("expected error message, got %q", m.message)
+	}
+	if m.mode != "normal" {
+		t.Errorf("expected normal mode with no providers, got %q", m.mode)
+	}
+
+	// With providers -> form mode
+	createTestProvider(t, db, "TestProvider")
+	m2 := NewModels(db)
+	m2.showFetchForm()
+	if m2.mode != "form" {
+		t.Errorf("expected form mode, got %q", m2.mode)
+	}
 }

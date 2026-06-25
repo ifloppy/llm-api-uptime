@@ -8,6 +8,7 @@ import (
 
 	"llm-api-uptime/internal/model"
 	"llm-api-uptime/internal/store"
+	"llm-api-uptime/internal/tui/components"
 )
 
 func TestNewStats(t *testing.T) {
@@ -279,4 +280,93 @@ func statsContains(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func TestStatsClearConfirm(t *testing.T) {
+	db := setupTestStore(t)
+	defer db.Close()
+
+	provider := createTestProvider(t, db, "TestProvider")
+	probe := createTestProbe(t, db, provider.ID, "gpt-4")
+
+	// Add some results
+	err := db.SaveResult(&model.Result{
+		ProbeID:    probe.ID,
+		Status:     model.StatusSuccess,
+		StatusCode: 200,
+		LatencyMs:  100,
+		CreatedAt:  time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("failed to save result: %v", err)
+	}
+
+	s := NewStats(db)
+
+	// Simulate 'c' key to enter confirm mode
+	s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+
+	if s.mode != "confirm" {
+		t.Fatal("expected confirm mode")
+	}
+
+	// Confirm clear
+	result, _ := s.updateConfirm(components.ConfirmMsg{Confirmed: true})
+	stats := result.(*Stats)
+
+	if stats.mode != "normal" {
+		t.Error("expected normal mode after confirm")
+	}
+	if stats.messageTyp != "success" {
+		t.Errorf("expected success message type, got %q", stats.messageTyp)
+	}
+
+	// Verify results were cleared
+	count, _ := db.GetResultCount()
+	if count != 0 {
+		t.Errorf("expected 0 results, got %d", count)
+	}
+}
+
+func TestStatsClearCancel(t *testing.T) {
+	db := setupTestStore(t)
+	defer db.Close()
+
+	provider := createTestProvider(t, db, "TestProvider")
+	probe := createTestProbe(t, db, provider.ID, "gpt-4")
+
+	// Add some results
+	err := db.SaveResult(&model.Result{
+		ProbeID:    probe.ID,
+		Status:     model.StatusSuccess,
+		StatusCode: 200,
+		LatencyMs:  100,
+		CreatedAt:  time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("failed to save result: %v", err)
+	}
+
+	s := NewStats(db)
+
+	// Simulate 'c' key to enter confirm mode
+	s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+
+	if s.mode != "confirm" {
+		t.Fatal("expected confirm mode")
+	}
+
+	// Cancel clear
+	result, _ := s.updateConfirm(components.ConfirmMsg{Confirmed: false})
+	stats := result.(*Stats)
+
+	if stats.mode != "normal" {
+		t.Error("expected normal mode after cancel")
+	}
+
+	// Verify results were NOT cleared
+	count, _ := db.GetResultCount()
+	if count != 1 {
+		t.Errorf("expected 1 result, got %d", count)
+	}
 }
