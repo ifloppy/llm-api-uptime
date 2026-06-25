@@ -64,6 +64,7 @@ func (s *Store) migrate() error {
 			status        TEXT NOT NULL CHECK(status IN ('success', 'error', 'timeout', 'empty_response', 'empty_content')),
 			status_code   INTEGER,
 			latency_ms    INTEGER,
+			ttft_ms       INTEGER DEFAULT 0,
 			prompt_tokens      INTEGER DEFAULT 0,
 			completion_tokens  INTEGER DEFAULT 0,
 			total_tokens       INTEGER DEFAULT 0,
@@ -85,6 +86,7 @@ func (s *Store) migrate() error {
 	}
 
 	s.migrateAlterColumn("providers", "max_tokens", "INTEGER DEFAULT 2")
+	s.migrateAlterColumn("results", "ttft_ms", "INTEGER DEFAULT 0")
 	s.migrateAlterColumn("results", "prompt_tokens", "INTEGER DEFAULT 0")
 	s.migrateAlterColumn("results", "completion_tokens", "INTEGER DEFAULT 0")
 	s.migrateAlterColumn("results", "total_tokens", "INTEGER DEFAULT 0")

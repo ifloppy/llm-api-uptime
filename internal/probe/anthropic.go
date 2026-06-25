@@ -53,12 +53,14 @@ func probeAnthropic(ctx context.Context, baseURL, apiKey, providerName, modelID 
 			return &model.Result{
 				Status:    model.StatusTimeout,
 				LatencyMs: latency,
+				TTFTMs:    latency,
 			}
 		}
 
 		return &model.Result{
 			Status:       model.StatusError,
 			LatencyMs:    latency,
+			TTFTMs:       latency,
 			ErrorMessage: err.Error(),
 		}
 	}
@@ -73,6 +75,7 @@ func probeAnthropic(ctx context.Context, baseURL, apiKey, providerName, modelID 
 			Status:           model.StatusEmptyContent,
 			StatusCode:       200,
 			LatencyMs:        latency,
+			TTFTMs:           latency,
 			PromptTokens:     int(message.Usage.InputTokens),
 			CompletionTokens: int(message.Usage.OutputTokens),
 			TotalTokens:      int(message.Usage.InputTokens + message.Usage.OutputTokens),
@@ -94,6 +97,7 @@ func probeAnthropic(ctx context.Context, baseURL, apiKey, providerName, modelID 
 			Status:           model.StatusEmptyContent,
 			StatusCode:       200,
 			LatencyMs:        latency,
+			TTFTMs:           latency,
 			PromptTokens:     int(message.Usage.InputTokens),
 			CompletionTokens: int(message.Usage.OutputTokens),
 			TotalTokens:      int(message.Usage.InputTokens + message.Usage.OutputTokens),
@@ -132,6 +136,7 @@ func probeAnthropic(ctx context.Context, baseURL, apiKey, providerName, modelID 
 		Status:           model.StatusSuccess,
 		StatusCode:       200,
 		LatencyMs:        latency,
+		TTFTMs:           latency,
 		PromptTokens:     promptTokens,
 		CompletionTokens: completionTokens,
 		TotalTokens:      totalTokens,

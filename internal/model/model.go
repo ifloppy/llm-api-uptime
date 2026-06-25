@@ -45,6 +45,7 @@ type Result struct {
 	Status            ProbeStatus `json:"status"`
 	StatusCode        int         `json:"status_code"`
 	LatencyMs         int         `json:"latency_ms"`
+	TTFTMs            int         `json:"ttft_ms"`
 	PromptTokens      int         `json:"prompt_tokens"`
 	CompletionTokens  int         `json:"completion_tokens"`
 	TotalTokens       int         `json:"total_tokens"`
@@ -83,8 +84,9 @@ type ModelStats struct {
 	LastStatus        string    `json:"last_status"`
 	LastTPS           float64   `json:"last_tps"`
 	SuccessRate       float64   `json:"success_rate"`
-	AvgLatencyMs      float64   `json:"avg_latency_ms"`
-	AvgTPS            float64   `json:"avg_tps"`
+	AvgLatencyMs      float64     `json:"avg_latency_ms"`
+	AvgTTFTMs         float64     `json:"avg_ttft_ms"`
+	AvgTPS            float64     `json:"avg_tps"`
 	StartTime         time.Time `json:"start_time"`
 	EndTime           time.Time `json:"end_time"`
 }

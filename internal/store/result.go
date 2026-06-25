@@ -39,11 +39,11 @@ func parseTimeString(s string) (time.Time, error) {
 
 func (s *Store) SaveResult(r *model.Result) error {
 	result, err := s.db.Exec(
-		`INSERT INTO results (probe_id, status, status_code, latency_ms, 
+		`INSERT INTO results (probe_id, status, status_code, latency_ms, ttft_ms,
 		 prompt_tokens, completion_tokens, total_tokens, tps,
 		 error_code, error_message, request_id, raw_error, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.ProbeID, r.Status, r.StatusCode, r.LatencyMs,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.ProbeID, r.Status, r.StatusCode, r.LatencyMs, r.TTFTMs,
 		r.PromptTokens, r.CompletionTokens, r.TotalTokens, r.TPS,
 		r.ErrorCode, r.ErrorMessage, r.RequestID, r.RawError, r.CreatedAt,
 	)
@@ -97,7 +97,7 @@ func (s *Store) GetResultsForProbe(probeID int64, limit int, statusFilter string
 	}
 
 	query := `
-		SELECT id, probe_id, status, status_code, latency_ms,
+		SELECT id, probe_id, status, status_code, latency_ms, ttft_ms,
 		       prompt_tokens, completion_tokens, total_tokens, tps,
 		       error_code, error_message, request_id, raw_error, created_at
 		FROM results
@@ -127,7 +127,7 @@ func (s *Store) GetResultsForProbe(probeID int64, limit int, statusFilter string
 	var results []model.Result
 	for rows.Next() {
 		var r model.Result
-		if err := rows.Scan(&r.ID, &r.ProbeID, &r.Status, &r.StatusCode, &r.LatencyMs,
+		if err := rows.Scan(&r.ID, &r.ProbeID, &r.Status, &r.StatusCode, &r.LatencyMs, &r.TTFTMs,
 			&r.PromptTokens, &r.CompletionTokens, &r.TotalTokens, &r.TPS,
 			&r.ErrorCode, &r.ErrorMessage, &r.RequestID, &r.RawError, &r.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan result: %w", err)
@@ -142,7 +142,7 @@ func (s *Store) GetResultsForProbePage(probeID int64, limit, offset int, statusF
 		limit = 20
 	}
 	query := `
-		SELECT id, probe_id, status, status_code, latency_ms,
+		SELECT id, probe_id, status, status_code, latency_ms, ttft_ms,
 		       prompt_tokens, completion_tokens, total_tokens, tps,
 		       error_code, error_message, request_id, raw_error, created_at
 		FROM results
@@ -169,7 +169,7 @@ func (s *Store) GetResultsForProbePage(probeID int64, limit, offset int, statusF
 	var results []model.Result
 	for rows.Next() {
 		var r model.Result
-		if err := rows.Scan(&r.ID, &r.ProbeID, &r.Status, &r.StatusCode, &r.LatencyMs,
+		if err := rows.Scan(&r.ID, &r.ProbeID, &r.Status, &r.StatusCode, &r.LatencyMs, &r.TTFTMs,
 			&r.PromptTokens, &r.CompletionTokens, &r.TotalTokens, &r.TPS,
 			&r.ErrorCode, &r.ErrorMessage, &r.RequestID, &r.RawError, &r.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan result: %w", err)
@@ -276,6 +276,7 @@ func (s *Store) GetStats(query model.StatsQuery) ([]model.ProviderStats, error) 
 			SUM(CASE WHEN r.status = 'empty_response' THEN 1 ELSE 0 END) as empty_resp_count,
 			SUM(CASE WHEN r.status = 'empty_content' THEN 1 ELSE 0 END) as empty_content_count,
 			AVG(CASE WHEN r.status = 'success' THEN r.latency_ms ELSE NULL END) as avg_latency,
+			AVG(CASE WHEN r.status = 'success' AND r.ttft_ms > 0 THEN r.ttft_ms ELSE NULL END) as avg_ttft,
 			AVG(CASE WHEN r.status = 'success' AND r.tps > 0 THEN r.tps ELSE NULL END) as avg_tps,
 			COALESCE((SELECT r2.status FROM results r2 WHERE r2.probe_id = p.id ORDER BY r2.created_at DESC LIMIT 1), '') as last_status,
 			COALESCE((SELECT r2.tps FROM results r2 WHERE r2.probe_id = p.id ORDER BY r2.created_at DESC LIMIT 1), 0) as last_tps
@@ -298,17 +299,21 @@ func (s *Store) GetStats(query model.StatsQuery) ([]model.ProviderStats, error) 
 		var ms model.ModelStats
 		var providerName string
 		var avgLatency sql.NullFloat64
+		var avgTTFT sql.NullFloat64
 		var avgTPS sql.NullFloat64
 
 		err := rows.Scan(&ms.ProbeID, &providerName, &ms.Model, &ms.TotalProbes, &ms.SuccessCount,
 			&ms.ErrorCount, &ms.TimeoutCount, &ms.EmptyRespCount, &ms.EmptyContentCount,
-			&avgLatency, &avgTPS, &ms.LastStatus, &ms.LastTPS)
+			&avgLatency, &avgTTFT, &avgTPS, &ms.LastStatus, &ms.LastTPS)
 		if err != nil {
 			return nil, fmt.Errorf("scan stats: %w", err)
 		}
 
 		if avgLatency.Valid {
 			ms.AvgLatencyMs = avgLatency.Float64
+		}
+		if avgTTFT.Valid {
+			ms.AvgTTFTMs = avgTTFT.Float64
 		}
 		if avgTPS.Valid {
 			ms.AvgTPS = avgTPS.Float64

@@ -147,6 +147,7 @@ function renderModelCards(stats) {
                         <div class="mc-sub">
                             <span>${ms.total_probes} probes</span>
                             <span>${ms.avg_latency_ms.toFixed(0)}ms</span>
+                            ${ms.avg_ttft_ms > 0 ? `<span>TTFT ${ms.avg_ttft_ms.toFixed(0)}ms</span>` : ''}
                         </div>
                         <div class="timeline-blocks" id="tl-${ms.probe_id}"></div>
                     </div>
@@ -544,7 +545,7 @@ async function loadStats() {
         if (exportBtn) exportBtn.style.display = isGuest ? 'none' : '';
 
         if (stats.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No statistics available</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No statistics available</td></tr>';
             return;
         }
 
@@ -563,6 +564,7 @@ async function loadStats() {
                         <td ${cursorStyle} ${clickAttr}>${ms.total_probes}</td>
                         <td ${cursorStyle} ${clickAttr}><span class="${getRateClass(ms.success_rate)}">${ms.success_rate.toFixed(1)}%</span></td>
                         <td ${cursorStyle} ${clickAttr}>${ms.avg_latency_ms.toFixed(0)}ms</td>
+                        <td ${cursorStyle} ${clickAttr}>${ms.avg_ttft_ms > 0 ? ms.avg_ttft_ms.toFixed(0) + 'ms' : '-'}</td>
                         <td ${cursorStyle} ${clickAttr}><span class="${tpsClass}">${ms.avg_tps.toFixed(2)}</span></td>
                         ${isGuest ? '' : `<td><button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteModel(${ms.probe_id || 0}, '${escapeHtml(ms.provider_name)}', '${escapeHtml(ms.model)}')">Delete</button></td>`}
                     </tr>
@@ -673,7 +675,7 @@ async function showProbeDetails(probeId, providerName, model, statusFilter = '',
         content += '</div>';
         content += '<div style="max-height: 55vh; overflow-y: auto;">';
         content += '<table class="data-table"><thead><tr>';
-        content += '<th>Time</th><th>Status</th><th>Latency</th><th>TPS</th><th>Request ID</th><th>Error</th><th style="width:60px"></th>';
+        content += '<th>Time</th><th>Status</th><th>Latency</th><th>TTFT</th><th>TPS</th><th>Request ID</th><th>Error</th><th style="width:60px"></th>';
         content += '</tr></thead><tbody>';
 
         if (results && results.length > 0) {
@@ -684,6 +686,7 @@ async function showProbeDetails(probeId, providerName, model, statusFilter = '',
                     <td>${time}</td>
                     <td><span class="${statusClass}">${r.status}</span></td>
                     <td>${r.latency_ms}ms</td>
+                    <td>${r.ttft_ms > 0 ? r.ttft_ms + 'ms' : '-'}</td>
                     <td>${r.tps.toFixed(2)}</td>
                     <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis">${r.request_id || '-'}</td>
                     <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${r.error_message || '-'}</td>
@@ -691,7 +694,7 @@ async function showProbeDetails(probeId, providerName, model, statusFilter = '',
                 </tr>`;
             });
         } else {
-            content += '<tr><td colspan="7" class="empty-state">No results found</td></tr>';
+            content += '<tr><td colspan="8" class="empty-state">No results found</td></tr>';
         }
 
         content += '</tbody></table></div>';

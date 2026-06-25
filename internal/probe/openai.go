@@ -46,9 +46,15 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 		MaxTokens: openai.Int(int64(maxTokens)),
 	})
 
+	var ttftMs int
+	firstChunk := true
 	acc := openai.ChatCompletionAccumulator{}
 	for stream.Next() {
 		chunk := stream.Current()
+		if firstChunk && len(chunk.Choices) > 0 {
+			ttftMs = int(time.Since(start).Milliseconds())
+			firstChunk = false
+		}
 		acc.AddChunk(chunk)
 	}
 
@@ -61,12 +67,14 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 			return &model.Result{
 				Status:    model.StatusTimeout,
 				LatencyMs: latency,
+				TTFTMs:    ttftMs,
 			}
 		}
 
 		return &model.Result{
 			Status:       model.StatusError,
 			LatencyMs:    latency,
+			TTFTMs:       ttftMs,
 			ErrorMessage: errMsg,
 		}
 	}
@@ -80,6 +88,7 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 			Status:           model.StatusEmptyContent,
 			StatusCode:       200,
 			LatencyMs:        latency,
+			TTFTMs:           ttftMs,
 			PromptTokens:     int(acc.Usage.PromptTokens),
 			CompletionTokens: int(acc.Usage.CompletionTokens),
 			TotalTokens:      int(acc.Usage.TotalTokens),
@@ -95,6 +104,7 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 			Status:           model.StatusEmptyContent,
 			StatusCode:       200,
 			LatencyMs:        latency,
+			TTFTMs:           ttftMs,
 			PromptTokens:     int(acc.Usage.PromptTokens),
 			CompletionTokens: int(acc.Usage.CompletionTokens),
 			TotalTokens:      int(acc.Usage.TotalTokens),
@@ -130,6 +140,7 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 		Status:           model.StatusSuccess,
 		StatusCode:       200,
 		LatencyMs:        latency,
+		TTFTMs:           ttftMs,
 		PromptTokens:     int(acc.Usage.PromptTokens),
 		CompletionTokens: completionTokens,
 		TotalTokens:      int(acc.Usage.TotalTokens),
