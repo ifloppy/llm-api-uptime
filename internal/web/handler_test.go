@@ -1028,3 +1028,53 @@ func TestHandleStatusGuest(t *testing.T) {
 		t.Error("expected guest to be true")
 	}
 }
+
+func TestHandleGetDailySummary(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	provider := createTestProviderInDB(t, db, "TestProvider")
+	probe := &model.Probe{ProviderID: provider.ID, Model: "gpt-4", Enabled: true}
+	db.CreateProbe(probe)
+
+	// Create some results
+	now := time.Now()
+	for i := 0; i < 7; i++ {
+		db.SaveResult(&model.Result{
+			ProbeID:   probe.ID,
+			Status:    model.StatusSuccess,
+			StatusCode: 200,
+			LatencyMs: 100,
+			CreatedAt: now.AddDate(0, 0, -i),
+		})
+	}
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/probes/%d/daily?days=7", probe.ID), nil)
+	req.SetPathValue("id", fmt.Sprintf("%d", probe.ID))
+	rec := httptest.NewRecorder()
+
+	handler.handleGetDailySummary(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rec.Code)
+	}
+
+	var summary []model.DailySummary
+	json.NewDecoder(rec.Body).Decode(&summary)
+
+	if len(summary) == 0 {
+		t.Fatal("expected non-empty summary")
+	}
+}
+
+func TestHandleGetDailySummaryInvalidID(t *testing.T) {
+	handler, _ := setupTestHandler(t)
+
+	req := httptest.NewRequest("GET", "/api/probes/invalid/daily", nil)
+	req.SetPathValue("id", "invalid")
+	rec := httptest.NewRecorder()
+
+	handler.handleGetDailySummary(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rec.Code)
+	}
+}

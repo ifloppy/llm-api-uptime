@@ -876,3 +876,47 @@ func TestGetHourlySummary(t *testing.T) {
 		}
 	}
 }
+
+func TestGetDailySummary(t *testing.T) {
+	store := setupTestDB(t)
+	defer store.Close()
+
+	provider := createTestProvider(t, store, "TestProvider")
+	probe := createTestProbe(t, store, provider.ID, "gpt-4")
+
+	now := time.Now()
+	// Insert results across 7 days
+	for day := 0; day < 7; day++ {
+		for j := 0; j < 3; j++ {
+			status := model.StatusSuccess
+			if j == 0 && day%2 == 0 {
+				status = model.StatusError
+			}
+			store.SaveResult(&model.Result{
+				ProbeID:   probe.ID,
+				Status:    status,
+				StatusCode: 200,
+				LatencyMs: 100,
+				CreatedAt: now.AddDate(0, 0, -day),
+			})
+		}
+	}
+
+	summaries, err := store.GetDailySummary(probe.ID, 7)
+	if err != nil {
+		t.Fatalf("failed to get daily summary: %v", err)
+	}
+
+	if len(summaries) == 0 {
+		t.Fatal("expected non-empty summary")
+	}
+
+	for _, ds := range summaries {
+		if ds.Total == 0 {
+			t.Errorf("day %s: expected non-zero total", ds.Date)
+		}
+		if ds.Success < 0 || ds.Success > 100 {
+			t.Errorf("day %s: invalid success rate %.1f", ds.Date, ds.Success)
+		}
+	}
+}
