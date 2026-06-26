@@ -111,6 +111,7 @@ func probeAnthropic(ctx context.Context, baseURL, apiKey, providerName, modelID 
 	totalTokens := promptTokens + completionTokens
 
 	tps := 0.0
+	tpsExcludeTTFT := 0.0
 	if latency > 0 && completionTokens > 0 {
 		tps = float64(completionTokens) / (float64(latency) / 1000.0)
 	}
@@ -141,6 +142,7 @@ func probeAnthropic(ctx context.Context, baseURL, apiKey, providerName, modelID 
 		CompletionTokens: completionTokens,
 		TotalTokens:      totalTokens,
 		TPS:              tps,
+		TPSExcludeTTFT:   tpsExcludeTTFT,
 		RequestID:        requestID,
 	}
 }

@@ -41,11 +41,11 @@ func parseTimeString(s string) (time.Time, error) {
 func (s *Store) SaveResult(r *model.Result) error {
 	result, err := s.db.Exec(
 		`INSERT INTO results (probe_id, status, status_code, latency_ms, ttft_ms,
-		 prompt_tokens, completion_tokens, total_tokens, tps,
+		 prompt_tokens, completion_tokens, total_tokens, tps, tps_exclude_ttft,
 		 error_code, error_message, request_id, raw_error, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		r.ProbeID, r.Status, r.StatusCode, r.LatencyMs, r.TTFTMs,
-		r.PromptTokens, r.CompletionTokens, r.TotalTokens, r.TPS,
+		r.PromptTokens, r.CompletionTokens, r.TotalTokens, r.TPS, r.TPSExcludeTTFT,
 		r.ErrorCode, r.ErrorMessage, r.RequestID, r.RawError, r.CreatedAt,
 	)
 	if err != nil {
@@ -99,7 +99,7 @@ func (s *Store) GetResultsForProbe(probeID int64, limit int, statusFilter string
 
 	query := `
 		SELECT id, probe_id, status, status_code, latency_ms, ttft_ms,
-		       prompt_tokens, completion_tokens, total_tokens, tps,
+		       prompt_tokens, completion_tokens, total_tokens, tps, tps_exclude_ttft,
 		       error_code, error_message, request_id, raw_error, created_at
 		FROM results
 		WHERE probe_id = ?
@@ -129,7 +129,7 @@ func (s *Store) GetResultsForProbe(probeID int64, limit int, statusFilter string
 	for rows.Next() {
 		var r model.Result
 		if err := rows.Scan(&r.ID, &r.ProbeID, &r.Status, &r.StatusCode, &r.LatencyMs, &r.TTFTMs,
-			&r.PromptTokens, &r.CompletionTokens, &r.TotalTokens, &r.TPS,
+			&r.PromptTokens, &r.CompletionTokens, &r.TotalTokens, &r.TPS, &r.TPSExcludeTTFT,
 			&r.ErrorCode, &r.ErrorMessage, &r.RequestID, &r.RawError, &r.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan result: %w", err)
 		}
@@ -144,7 +144,7 @@ func (s *Store) GetResultsForProbePage(probeID int64, limit, offset int, statusF
 	}
 	query := `
 		SELECT id, probe_id, status, status_code, latency_ms, ttft_ms,
-		       prompt_tokens, completion_tokens, total_tokens, tps,
+		       prompt_tokens, completion_tokens, total_tokens, tps, tps_exclude_ttft,
 		       error_code, error_message, request_id, raw_error, created_at
 		FROM results
 		WHERE probe_id = ?
@@ -171,7 +171,7 @@ func (s *Store) GetResultsForProbePage(probeID int64, limit, offset int, statusF
 	for rows.Next() {
 		var r model.Result
 		if err := rows.Scan(&r.ID, &r.ProbeID, &r.Status, &r.StatusCode, &r.LatencyMs, &r.TTFTMs,
-			&r.PromptTokens, &r.CompletionTokens, &r.TotalTokens, &r.TPS,
+			&r.PromptTokens, &r.CompletionTokens, &r.TotalTokens, &r.TPS, &r.TPSExcludeTTFT,
 			&r.ErrorCode, &r.ErrorMessage, &r.RequestID, &r.RawError, &r.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan result: %w", err)
 		}
@@ -340,6 +340,7 @@ func (s *Store) GetStats(query model.StatsQuery) ([]model.ProviderStats, error) 
 			AVG(CASE WHEN r.status = 'success' THEN r.latency_ms ELSE NULL END) as avg_latency,
 			AVG(CASE WHEN r.status = 'success' AND r.ttft_ms > 0 THEN r.ttft_ms ELSE NULL END) as avg_ttft,
 			AVG(CASE WHEN r.status = 'success' AND r.tps > 0 THEN r.tps ELSE NULL END) as avg_tps,
+			AVG(CASE WHEN r.status = 'success' AND r.tps_exclude_ttft > 0 THEN r.tps_exclude_ttft ELSE NULL END) as avg_tps_exclude_ttft,
 			COALESCE((SELECT r2.status FROM results r2 WHERE r2.probe_id = p.id ORDER BY r2.created_at DESC LIMIT 1), '') as last_status,
 			COALESCE((SELECT r2.tps FROM results r2 WHERE r2.probe_id = p.id ORDER BY r2.created_at DESC LIMIT 1), 0) as last_tps
 		FROM results r
@@ -363,10 +364,11 @@ func (s *Store) GetStats(query model.StatsQuery) ([]model.ProviderStats, error) 
 		var avgLatency sql.NullFloat64
 		var avgTTFT sql.NullFloat64
 		var avgTPS sql.NullFloat64
+		var avgTPSExcludeTTFT sql.NullFloat64
 
 		err := rows.Scan(&ms.ProbeID, &providerName, &ms.Model, &ms.TotalProbes, &ms.SuccessCount,
 			&ms.ErrorCount, &ms.TimeoutCount, &ms.EmptyRespCount, &ms.EmptyContentCount,
-			&avgLatency, &avgTTFT, &avgTPS, &ms.LastStatus, &ms.LastTPS)
+			&avgLatency, &avgTTFT, &avgTPS, &avgTPSExcludeTTFT, &ms.LastStatus, &ms.LastTPS)
 		if err != nil {
 			return nil, fmt.Errorf("scan stats: %w", err)
 		}
@@ -379,6 +381,9 @@ func (s *Store) GetStats(query model.StatsQuery) ([]model.ProviderStats, error) 
 		}
 		if avgTPS.Valid {
 			ms.AvgTPS = avgTPS.Float64
+		}
+		if avgTPSExcludeTTFT.Valid {
+			ms.AvgTPSExcludeTTFT = avgTPSExcludeTTFT.Float64
 		}
 		ms.ProviderName = providerName
 		ms.StartTime = since

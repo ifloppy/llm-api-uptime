@@ -50,6 +50,7 @@ type Result struct {
 	CompletionTokens  int         `json:"completion_tokens"`
 	TotalTokens       int         `json:"total_tokens"`
 	TPS               float64     `json:"tps"`
+	TPSExcludeTTFT    float64     `json:"tps_exclude_ttft"`
 	ErrorCode         string      `json:"error_code"`
 	ErrorMessage      string      `json:"error_message"`
 	RequestID         string      `json:"request_id"`
@@ -84,9 +85,10 @@ type ModelStats struct {
 	LastStatus        string    `json:"last_status"`
 	LastTPS           float64   `json:"last_tps"`
 	SuccessRate       float64   `json:"success_rate"`
-	AvgLatencyMs      float64     `json:"avg_latency_ms"`
-	AvgTTFTMs         float64     `json:"avg_ttft_ms"`
-	AvgTPS            float64     `json:"avg_tps"`
+	AvgLatencyMs      float64   `json:"avg_latency_ms"`
+	AvgTTFTMs         float64   `json:"avg_ttft_ms"`
+	AvgTPS            float64   `json:"avg_tps"`
+	AvgTPSExcludeTTFT float64   `json:"avg_tps_exclude_ttft"`
 	StartTime         time.Time `json:"start_time"`
 	EndTime           time.Time `json:"end_time"`
 }

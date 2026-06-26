@@ -129,9 +129,13 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 	}
 
 	tps := 0.0
+	tpsExcludeTTFT := 0.0
 	completionTokens := int(acc.Usage.CompletionTokens)
 	if latency > 0 && completionTokens > 0 {
 		tps = float64(completionTokens) / (float64(latency) / 1000.0)
+	}
+	if ttftMs > 0 && latency > ttftMs && completionTokens > 0 {
+		tpsExcludeTTFT = float64(completionTokens) / (float64(latency-ttftMs) / 1000.0)
 	}
 
 	if latency < minReasonableLatencyMs {
@@ -160,6 +164,7 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 		CompletionTokens: completionTokens,
 		TotalTokens:      int(acc.Usage.TotalTokens),
 		TPS:              tps,
+		TPSExcludeTTFT:   tpsExcludeTTFT,
 		RequestID:        requestID,
 	}
 }

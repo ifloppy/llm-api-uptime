@@ -91,6 +91,7 @@ func (s *Store) migrate() error {
 	s.migrateAlterColumn("results", "completion_tokens", "INTEGER DEFAULT 0")
 	s.migrateAlterColumn("results", "total_tokens", "INTEGER DEFAULT 0")
 	s.migrateAlterColumn("results", "tps", "REAL DEFAULT 0")
+	s.migrateAlterColumn("results", "tps_exclude_ttft", "REAL DEFAULT 0")
 
 	return nil
 }

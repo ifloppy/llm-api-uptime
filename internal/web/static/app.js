@@ -144,6 +144,10 @@ function renderModelCards(stats) {
                             <div class="mc-label">Avg TPS</div>
                             <div class="mc-value" style="color:${tpsColor};font-size:1.5em">${ms.avg_tps.toFixed(1)}</div>
                         </div>
+                        <div class="mc-metric">
+                            <div class="mc-label">Avg TPS (excl TTFT)</div>
+                            <div class="mc-value" style="color:${tpsColor};font-size:1.2em">${ms.avg_tps_exclude_ttft.toFixed(1)}</div>
+                        </div>
                         <div class="mc-sub">
                             <span>${ms.total_probes} probes</span>
                             <span>${ms.avg_latency_ms.toFixed(0)}ms</span>
@@ -587,6 +591,7 @@ async function loadStats() {
                         <td ${cursorStyle} ${clickAttr}>${ms.avg_latency_ms.toFixed(0)}ms</td>
                         <td ${cursorStyle} ${clickAttr}>${ms.avg_ttft_ms > 0 ? ms.avg_ttft_ms.toFixed(0) + 'ms' : '-'}</td>
                         <td ${cursorStyle} ${clickAttr}><span class="${tpsClass}">${ms.avg_tps.toFixed(2)}</span></td>
+                        <td ${cursorStyle} ${clickAttr}><span class="${tpsClass}">${ms.avg_tps_exclude_ttft.toFixed(2)}</span></td>
                         ${isGuest ? '' : `<td><button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteModel(${ms.probe_id || 0}, '${escapeHtml(ms.provider_name)}', '${escapeHtml(ms.model)}')">Delete</button></td>`}
                     </tr>
                 `;

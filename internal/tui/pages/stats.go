@@ -197,6 +197,7 @@ func (s *Stats) View() string {
 				TableCellStyle.Width(10).Render("Success%"),
 				TableCellStyle.Width(12).Render("Avg Latency"),
 				TableCellStyle.Width(10).Render("Avg TPS"),
+				TableCellStyle.Width(10).Render("TPS excl"),
 			),
 		),
 	}
@@ -237,6 +238,7 @@ func (s *Stats) View() string {
 					TableCellStyle.Width(10).Render(rateStyle.Render(fmt.Sprintf("%.1f%%", ms.SuccessRate))),
 					TableCellStyle.Width(12).Render(fmt.Sprintf("%.0fms", ms.AvgLatencyMs)),
 					TableCellStyle.Width(10).Render(tpsStyle.Render(fmt.Sprintf("%.2f", ms.AvgTPS))),
+					TableCellStyle.Width(10).Render(tpsStyle.Render(fmt.Sprintf("%.2f", ms.AvgTPSExcludeTTFT))),
 				),
 			)
 			rows = append(rows, row)
