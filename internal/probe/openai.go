@@ -57,6 +57,8 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 	var ttftMs int
 	firstChunk := true
 	acc := openai.ChatCompletionAccumulator{}
+	var lastUsagePromptTokens, lastUsageCompletionTokens, lastUsageTotalTokens int
+
 	for stream.Next() {
 		chunk := stream.Current()
 		if firstChunk && len(chunk.Choices) > 0 {
@@ -64,9 +66,26 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 			firstChunk = false
 		}
 		acc.AddChunk(chunk)
+
+		// Fallback: manually track usage from chunk-level data
+		if chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 {
+			lastUsagePromptTokens = int(chunk.Usage.PromptTokens)
+			lastUsageCompletionTokens = int(chunk.Usage.CompletionTokens)
+			lastUsageTotalTokens = int(chunk.Usage.TotalTokens)
+		}
 	}
 
 	latency := int(time.Since(start).Milliseconds())
+
+	// Use SDK accumulated usage, or fallback to manually tracked usage
+	promptTokens := int(acc.Usage.PromptTokens)
+	completionTokens := int(acc.Usage.CompletionTokens)
+	totalTokens := int(acc.Usage.TotalTokens)
+	if promptTokens == 0 && lastUsagePromptTokens > 0 {
+		promptTokens = lastUsagePromptTokens
+		completionTokens = lastUsageCompletionTokens
+		totalTokens = lastUsageTotalTokens
+	}
 
 	if err := stream.Err(); err != nil {
 		errMsg := err.Error()
@@ -104,9 +123,9 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 			StatusCode:       200,
 			LatencyMs:        latency,
 			TTFTMs:           ttftMs,
-			PromptTokens:     int(acc.Usage.PromptTokens),
-			CompletionTokens: int(acc.Usage.CompletionTokens),
-			TotalTokens:      int(acc.Usage.TotalTokens),
+			PromptTokens:     promptTokens,
+			CompletionTokens: completionTokens,
+			TotalTokens:      totalTokens,
 			ErrorMessage:     "empty choices in response",
 			RequestID:        requestID,
 		}
@@ -120,9 +139,9 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 			StatusCode:       200,
 			LatencyMs:        latency,
 			TTFTMs:           ttftMs,
-			PromptTokens:     int(acc.Usage.PromptTokens),
-			CompletionTokens: int(acc.Usage.CompletionTokens),
-			TotalTokens:      int(acc.Usage.TotalTokens),
+			PromptTokens:     promptTokens,
+			CompletionTokens: completionTokens,
+			TotalTokens:      totalTokens,
 			ErrorMessage:     "empty content in response",
 			RequestID:        requestID,
 		}
@@ -130,7 +149,6 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 
 	tps := 0.0
 	tpsExcludeTTFT := 0.0
-	completionTokens := int(acc.Usage.CompletionTokens)
 	if latency > 0 && completionTokens > 0 {
 		tps = float64(completionTokens) / (float64(latency) / 1000.0)
 	}
@@ -160,9 +178,9 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 		StatusCode:       200,
 		LatencyMs:        latency,
 		TTFTMs:           ttftMs,
-		PromptTokens:     int(acc.Usage.PromptTokens),
+		PromptTokens:     promptTokens,
 		CompletionTokens: completionTokens,
-		TotalTokens:      int(acc.Usage.TotalTokens),
+		TotalTokens:      totalTokens,
 		TPS:              tps,
 		TPSExcludeTTFT:   tpsExcludeTTFT,
 		RequestID:        requestID,
