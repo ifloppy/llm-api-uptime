@@ -26,6 +26,14 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 		option.WithBaseURL(strings.TrimRight(baseURL, "/") + "/v1"),
 		option.WithAPIKey(apiKey),
 		option.WithMiddleware(func(req *http.Request, nxt option.MiddlewareNext) (*http.Response, error) {
+			// Log request for debugging
+			slog.Debug("probe request",
+				"provider", providerName,
+				"model", modelID,
+				"method", req.Method,
+				"url", req.URL.String(),
+			)
+
 			resp, err := nxt(req)
 			if err == nil {
 				if rid := resp.Header.Get("x-request-id"); rid != "" {
@@ -63,6 +71,13 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 	if err := stream.Err(); err != nil {
 		errMsg := err.Error()
 		
+		slog.Debug("probe stream error",
+			"provider", providerName,
+			"model", modelID,
+			"error", errMsg,
+			"latency_ms", latency,
+		)
+
 		if ctx.Err() == context.DeadlineExceeded {
 			return &model.Result{
 				Status:    model.StatusTimeout,
