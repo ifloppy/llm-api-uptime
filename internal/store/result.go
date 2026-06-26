@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"llm-api-uptime/internal/model"
+	"sort"
 	"strings"
 	"time"
 )
@@ -245,6 +246,67 @@ func (s *Store) GetHourlySummary(probeID int64, hours int) ([]model.HourlySummar
 	for _, hs := range hourMap {
 		summaries = append(summaries, *hs)
 	}
+
+	return summaries, nil
+}
+
+func (s *Store) GetDailySummary(probeID int64, days int) ([]model.DailySummary, error) {
+	since := time.Now().AddDate(0, 0, -days)
+
+	rows, err := s.db.Query(`
+		SELECT created_at, status
+		FROM results
+		WHERE probe_id = ?
+		ORDER BY created_at
+	`, probeID)
+	if err != nil {
+		return nil, fmt.Errorf("get daily summary: %w", err)
+	}
+	defer rows.Close()
+
+	type rawResult struct {
+		CreatedAt time.Time
+		Status    string
+	}
+	var results []rawResult
+	for rows.Next() {
+		var createdAtStr string
+		var status string
+		if err := rows.Scan(&createdAtStr, &status); err != nil {
+			return nil, fmt.Errorf("scan: %w", err)
+		}
+		createdAt, err := parseTimeString(createdAtStr)
+		if err != nil {
+			continue
+		}
+		if createdAt.After(since) {
+			results = append(results, rawResult{CreatedAt: createdAt, Status: status})
+		}
+	}
+
+	dayMap := make(map[string]*model.DailySummary)
+	for _, r := range results {
+		dayKey := r.CreatedAt.Format("2006-01-02")
+		if _, ok := dayMap[dayKey]; !ok {
+			dayMap[dayKey] = &model.DailySummary{Date: dayKey}
+		}
+		dayMap[dayKey].Total++
+		if r.Status != "success" {
+			dayMap[dayKey].Failed++
+		}
+	}
+
+	var summaries []model.DailySummary
+	for _, ds := range dayMap {
+		if ds.Total > 0 {
+			ds.Success = float64(ds.Total-ds.Failed) / float64(ds.Total) * 100
+		}
+		summaries = append(summaries, *ds)
+	}
+
+	sort.Slice(summaries, func(i, j int) bool {
+		return summaries[i].Date > summaries[j].Date
+	})
 
 	return summaries, nil
 }

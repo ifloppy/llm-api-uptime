@@ -44,6 +44,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/stats", h.handleClearStats)
 	mux.HandleFunc("GET /api/probes/{id}/results", h.handleGetProbeResults)
 	mux.HandleFunc("GET /api/probes/{id}/hourly", h.handleGetHourlySummary)
+	mux.HandleFunc("GET /api/probes/{id}/daily", h.handleGetDailySummary)
 	mux.HandleFunc("GET /api/export/csv", h.handleExportCSV)
 	mux.HandleFunc("DELETE /api/results/{id}", h.handleDeleteResult)
 	mux.HandleFunc("POST /api/probe/trigger", h.handleTriggerProbe)
@@ -448,6 +449,31 @@ func (h *Handler) handleGetHourlySummary(w http.ResponseWriter, r *http.Request)
 	}
 
 	summary, err := h.store.GetHourlySummary(id, hours)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, summary)
+}
+
+func (h *Handler) handleGetDailySummary(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid id"})
+		return
+	}
+
+	daysStr := r.URL.Query().Get("days")
+	days := 7
+	if daysStr != "" {
+		if n, err := strconv.Atoi(daysStr); err == nil && n > 0 {
+			days = n
+		}
+	}
+
+	summary, err := h.store.GetDailySummary(id, days)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return

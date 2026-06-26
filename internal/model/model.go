@@ -110,6 +110,13 @@ type HourlySummary struct {
 	Failed int    `json:"failed"`
 }
 
+type DailySummary struct {
+	Date    string  `json:"date"`
+	Total   int     `json:"total"`
+	Failed  int     `json:"failed"`
+	Success float64 `json:"success"` // success rate 0-100
+}
+
 type CSVRow struct {
 	ProviderName    string
 	Model           string

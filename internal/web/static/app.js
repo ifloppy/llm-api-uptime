@@ -150,11 +150,12 @@ function renderModelCards(stats) {
                             ${ms.avg_ttft_ms > 0 ? `<span>TTFT ${ms.avg_ttft_ms.toFixed(0)}ms</span>` : ''}
                         </div>
                         <div class="timeline-blocks" id="tl-${ms.probe_id}"></div>
+                        <div class="daily-summary" id="ds-${ms.probe_id}"></div>
                     </div>
                 </div>
             `;
             // load timeline data async
-            if (ms.probe_id) loadTimeline(ms.probe_id);
+            if (ms.probe_id) { loadTimeline(ms.probe_id); loadDailySummary(ms.probe_id); }
         });
     });
 
@@ -177,6 +178,26 @@ async function loadTimeline(probeId) {
                 else cls = 'tb-red';
             }
             html += `<div class="timeline-block ${cls}" title="${h.hour}: ${h.total} probes, ${h.failed} failed"></div>`;
+        });
+        container.innerHTML = html;
+    } catch (e) { /* silently ignore */ }
+}
+
+async function loadDailySummary(probeId) {
+    try {
+        const summary = await apiCall(`/probes/${probeId}/daily?days=7`);
+        const container = document.getElementById(`ds-${probeId}`);
+        if (!container || !summary || summary.length === 0) return;
+        
+        let html = '';
+        summary.forEach(d => {
+            const rate = d.success;
+            const color = rate >= 99 ? '#10b981' : (rate >= 95 ? '#f59e0b' : '#ef4444');
+            const date = d.date.substring(5); // "MM-DD"
+            html += `<div class="ds-day" title="${d.date}: ${rate.toFixed(1)}%">
+                <div class="ds-bar" style="height:${Math.max(rate, 5)}%;background:${color}"></div>
+                <div class="ds-label">${date}</div>
+            </div>`;
         });
         container.innerHTML = html;
     } catch (e) { /* silently ignore */ }
