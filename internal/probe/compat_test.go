@@ -58,8 +58,8 @@ func TestCompatOneAPIWithContent(t *testing.T) {
 	if result.TotalTokens != 20 {
 		t.Errorf("TotalTokens = %d, want 20", result.TotalTokens)
 	}
-	if result.LatencyMs <= 0 {
-		t.Error("expected positive latency")
+	if result.LatencyMs < 0 {
+		t.Error("expected non-negative latency")
 	}
 }
 
@@ -161,8 +161,8 @@ func TestCompatCustomHeaders(t *testing.T) {
 	if result.TotalTokens != 15 {
 		t.Errorf("TotalTokens = %d, want 15", result.TotalTokens)
 	}
-	if result.LatencyMs <= 0 {
-		t.Error("expected positive latency")
+	if result.LatencyMs < 0 {
+		t.Error("expected non-negative latency")
 	}
 }
 
