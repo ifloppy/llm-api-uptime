@@ -41,6 +41,15 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.LogLevel != "info" {
 		t.Errorf("LogLevel = %q, want info", cfg.LogLevel)
 	}
+	if !cfg.UpdateCheckEnabled {
+		t.Error("UpdateCheckEnabled = false, want true")
+	}
+	if cfg.UpdateCheckInterval != 24*time.Hour {
+		t.Errorf("UpdateCheckInterval = %v, want 24h", cfg.UpdateCheckInterval)
+	}
+	if !cfg.UpdateAutoStage {
+		t.Error("UpdateAutoStage = false, want true")
+	}
 }
 
 func TestLoadFromEnv(t *testing.T) {
@@ -56,6 +65,9 @@ func TestLoadFromEnv(t *testing.T) {
 	os.Setenv("WEB_PUBLIC", "true")
 	os.Setenv("WEB_PASSWORD", "secret123")
 	os.Setenv("LOG_LEVEL", "debug")
+	os.Setenv("UPDATE_CHECK_ENABLED", "false")
+	os.Setenv("UPDATE_CHECK_INTERVAL", "2h")
+	os.Setenv("UPDATE_AUTO_STAGE", "false")
 
 	cfg := Load()
 
@@ -89,6 +101,15 @@ func TestLoadFromEnv(t *testing.T) {
 	if cfg.LogLevel != "debug" {
 		t.Errorf("LogLevel = %q, want debug", cfg.LogLevel)
 	}
+	if cfg.UpdateCheckEnabled {
+		t.Error("UpdateCheckEnabled = true, want false")
+	}
+	if cfg.UpdateCheckInterval != 2*time.Hour {
+		t.Errorf("UpdateCheckInterval = %v, want 2h", cfg.UpdateCheckInterval)
+	}
+	if cfg.UpdateAutoStage {
+		t.Error("UpdateAutoStage = true, want false")
+	}
 }
 
 func TestLoadInvalidEnv(t *testing.T) {
@@ -99,6 +120,9 @@ func TestLoadInvalidEnv(t *testing.T) {
 	os.Setenv("PROBE_CONCURRENCY", "abc")
 	os.Setenv("WEB_PORT", "-1")
 	os.Setenv("WEB_ENABLED", "yes")
+	os.Setenv("UPDATE_CHECK_INTERVAL", "30s")
+	os.Setenv("UPDATE_CHECK_ENABLED", "invalid")
+	os.Setenv("UPDATE_AUTO_STAGE", "invalid")
 
 	cfg := Load()
 
@@ -116,6 +140,12 @@ func TestLoadInvalidEnv(t *testing.T) {
 	}
 	if cfg.WebEnabled != false {
 		t.Errorf("WebEnabled should default on invalid value, got %v", cfg.WebEnabled)
+	}
+	if cfg.UpdateCheckInterval != 24*time.Hour {
+		t.Errorf("UpdateCheckInterval should default below minimum, got %v", cfg.UpdateCheckInterval)
+	}
+	if !cfg.UpdateCheckEnabled || !cfg.UpdateAutoStage {
+		t.Error("invalid update booleans should preserve default true values")
 	}
 }
 

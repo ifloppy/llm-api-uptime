@@ -1,147 +1,142 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LLM API Uptime Monitor</title>
+    <meta name="color-scheme" content="light dark">
+    <title>LLM API Uptime</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232563eb'/%3E%3Cpath d='M8 23V12m6 11V8m6 15V14m6 9V5' fill='none' stroke='white' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
     <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-    <div id="app">
-        <nav class="sidebar">
-            <div class="logo">
-                <h2>LLM Uptime</h2>
+    <a class="skip-link" href="#mainContent">Skip to main content</a>
+    <div id="app" class="app-shell">
+        <aside class="sidebar" aria-label="Application sidebar">
+            <div class="brand">
+                <span class="brand-mark" aria-hidden="true">
+                    <svg viewBox="0 0 24 24"><path d="M4 17V7m5 10V11m5 6V4m5 13V9"/></svg>
+                </span>
+                <span><strong>LLM Uptime</strong><small>Operations console</small></span>
             </div>
-            <ul class="nav-items">
-                <li class="nav-item active" data-page="dashboard">
-                    <span class="icon">📊</span>
-                    <span class="label">Dashboard</span>
-                </li>
-                <li class="nav-item" data-page="providers">
-                    <span class="icon">🏢</span>
-                    <span class="label">Providers</span>
-                </li>
-                <li class="nav-item" data-page="models">
-                    <span class="icon">🤖</span>
-                    <span class="label">Models</span>
-                </li>
-                <li class="nav-item" data-page="stats">
-                    <span class="icon">📈</span>
-                    <span class="label">Statistics</span>
-                </li>
-            </ul>
+            <nav class="primary-nav" aria-label="Primary navigation">
+                <button class="nav-item active" type="button" data-page="dashboard" aria-label="Dashboard" aria-current="page">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+                    <span>Dashboard</span>
+                </button>
+                <button class="nav-item" type="button" data-page="providers" aria-label="Providers">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21V7l8-4 8 4v14M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01M9 21v-3h6v3"/></svg>
+                    <span>Providers</span>
+                </button>
+                <button class="nav-item" type="button" data-page="models" aria-label="Models">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M8 10h.01M16 10h.01M9 14h6M12 6V3"/></svg>
+                    <span>Models</span>
+                </button>
+                <button class="nav-item" type="button" data-page="stats" aria-label="Statistics">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V9m5 10V5m5 14v-7m5 7V3"/></svg>
+                    <span>Statistics</span>
+                </button>
+            </nav>
             <div class="sidebar-footer">
-                <button id="triggerBtn" class="btn btn-primary">Trigger Probe</button>
+                <button id="triggerBtn" class="btn btn-primary btn-block" type="button" aria-label="Run probe">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>
+                    <span>Run probe</span>
+                </button>
+                <button id="themeBtn" class="btn btn-quiet btn-block" type="button" aria-label="Switch color theme">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9c0-.4 0-.8-.1-1.2A7 7 0 0 1 12 3Z"/></svg>
+                    <span id="themeLabel">Theme</span>
+                </button>
             </div>
-        </nav>
+        </aside>
 
-        <main class="content">
-            <div id="dashboard" class="page active">
-                <div class="page-header">
-                    <h1>Dashboard</h1>
-                    <div class="header-meta">
-                        <span class="status-badge" id="engineStatus">Loading...</span>
-                        <span id="guestIndicator" class="status-badge neutral" style="display:none;margin-left:8px">Guest Mode</span>
-                        <span class="muted" style="margin-left:12px">Last probe: <strong id="lastProbeTime">-</strong></span>
+        <main id="mainContent" class="content" tabindex="-1">
+            <section id="dashboard" class="page active" aria-labelledby="dashboardTitle">
+                <header class="page-header dashboard-header">
+                    <div>
+                        <p class="eyebrow">Fleet overview</p>
+                        <h1 id="dashboardTitle">Operational status</h1>
+                        <p class="page-description">Current availability and today's service-level performance.</p>
                     </div>
-                </div>
-                <div class="model-cards" id="modelCards"></div>
-                <div class="card">
-                    <h3>Recent Activity</h3>
-                    <div id="recentActivity"></div>
-                </div>
-            </div>
+                    <div class="header-actions">
+                        <button id="copyStatusBtn" class="btn btn-secondary" type="button">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
+                            Copy current status
+                        </button>
+                    </div>
+                </header>
 
-            <div id="providers" class="page">
-                <div class="page-header">
-                    <h1>Providers</h1>
-                    <button id="addProviderBtn" class="btn btn-primary" onclick="showAddProvider()">Add Provider</button>
+                <div class="system-strip" aria-label="Monitor status">
+                    <div class="system-state"><span id="engineDot" class="state-dot neutral" aria-hidden="true"></span><span>Engine</span><strong id="engineStatus">Loading</strong></div>
+                    <div><span>Last probe</span><strong id="lastProbeTime">-</strong></div>
+                    <div><span>Access</span><strong id="guestIndicator">Checking</strong></div>
+                    <div><span>Providers</span><strong id="providerCount">-</strong></div>
+                    <div><span>Models</span><strong id="modelCount">-</strong></div>
                 </div>
-                <div class="card">
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>Base URL</th>
-                                <th>Type</th>
-                                <th>Max Tokens</th>
-                                <th>Status</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="providersTable"></tbody>
-                    </table>
-                </div>
-            </div>
 
-            <div id="models" class="page">
-                <div class="page-header">
-                    <h1>Models</h1>
-                    <button id="addModelBtn" class="btn btn-primary" onclick="showAddModel()">Add Model</button>
-                </div>
-                <div class="card">
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>Provider</th>
-                                <th>Model</th>
-                                <th>Status</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="modelsTable"></tbody>
-                    </table>
-                </div>
-            </div>
+                <section id="updatePanel" class="update-panel hidden" aria-labelledby="updateTitle">
+                    <div>
+                        <p class="eyebrow">Application update</p>
+                        <h2 id="updateTitle">Release status</h2>
+                    </div>
+                    <dl class="update-facts">
+                        <div><dt>Current</dt><dd id="updateCurrent">-</dd></div>
+                        <div><dt>Latest</dt><dd id="updateLatest">-</dd></div>
+                        <div><dt>Status</dt><dd id="updateStatus">-</dd></div>
+                    </dl>
+                    <div class="update-actions">
+                        <a id="updateReleaseLink" class="btn btn-secondary hidden" href="#" target="_blank" rel="noopener noreferrer">Release notes</a>
+                        <button id="restartBtn" class="btn btn-primary hidden" type="button">Restart to update</button>
+                    </div>
+                </section>
 
-            <div id="stats" class="page">
-                <div class="page-header">
-                    <h1>Statistics</h1>
+                <div id="dashboardProviders" class="provider-stack" aria-live="polite">
+                    <div class="loading-state"><span class="spinner" aria-hidden="true"></span>Loading service status</div>
+                </div>
+            </section>
+
+            <section id="providers" class="page" aria-labelledby="providersTitle" hidden>
+                <header class="page-header">
+                    <div><p class="eyebrow">Configuration</p><h1 id="providersTitle">Providers</h1><p class="page-description">API endpoints and probe credentials.</p></div>
+                    <button id="addProviderBtn" class="btn btn-primary" type="button">Add provider</button>
+                </header>
+                <div class="table-card"><div class="table-scroll"><table class="data-table responsive-table"><thead><tr><th scope="col">Name</th><th scope="col">Base URL</th><th scope="col">Type</th><th scope="col">Max tokens</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead><tbody id="providersTable"></tbody></table></div></div>
+            </section>
+
+            <section id="models" class="page" aria-labelledby="modelsTitle" hidden>
+                <header class="page-header">
+                    <div><p class="eyebrow">Configuration</p><h1 id="modelsTitle">Models</h1><p class="page-description">Models included in the recurring probe schedule.</p></div>
+                    <button id="addModelBtn" class="btn btn-primary" type="button">Add model</button>
+                </header>
+                <div class="table-card"><div class="table-scroll"><table class="data-table responsive-table"><thead><tr><th scope="col">Provider</th><th scope="col">Model</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead><tbody id="modelsTable"></tbody></table></div></div>
+            </section>
+
+            <section id="stats" class="page" aria-labelledby="statsTitle" hidden>
+                <header class="page-header stats-header">
+                    <div><p class="eyebrow">Historical analysis</p><h1 id="statsTitle">Statistics</h1><p class="page-description">Summary range controls the table. Charts always show the latest 30 days.</p></div>
                     <div class="controls">
-                        <select id="timeRange">
-                            <option value="24">Last 24 Hours</option>
-                            <option value="168">Last 7 Days</option>
-                            <option value="720">Last 30 Days</option>
-                        </select>
-                        <button id="exportCsvBtn" class="btn btn-secondary" onclick="exportCSV()">Export CSV</button>
-                        <button id="clearStatsBtn" class="btn btn-danger" onclick="clearStats()">Clear Stats</button>
+                        <label class="select-label" for="timeRange"><span>Summary range</span><select id="timeRange"><option value="24">24 hours</option><option value="168">7 days</option><option value="720">30 days</option></select></label>
+                        <button id="statsCopyStatusBtn" class="btn btn-secondary" type="button">Copy current status</button>
+                        <button id="toggleChartsBtn" class="btn btn-secondary" type="button" aria-pressed="false">Hide charts</button>
+                        <button id="exportCsvBtn" class="btn btn-secondary" type="button">Export CSV</button>
+                        <button id="clearStatsBtn" class="btn btn-danger-outline" type="button">Clear data</button>
                     </div>
+                </header>
+                <div id="statsProviders" class="provider-stack" aria-live="polite">
+                    <div class="loading-state"><span class="spinner" aria-hidden="true"></span>Loading statistics</div>
                 </div>
-                <div class="card">
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th></th>
-                                <th>Provider</th>
-                                <th>Model</th>
-                                <th>Total Probes</th>
-                                <th>Success Rate</th>
-                                <th>Avg Latency</th>
-                                <th>Avg TTFT</th>
-                                <th>Avg TPS</th>
-                                <th>Avg TPS (excl TTFT)</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody id="statsTable"></tbody>
-                    </table>
-                </div>
-            </div>
+            </section>
         </main>
     </div>
 
-    <div id="modal" class="modal hidden">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 id="modalTitle"></h3>
-                <button class="btn-close" onclick="hideModal()">&times;</button>
-            </div>
+    <div id="modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" hidden>
+        <div class="modal-content" tabindex="-1">
+            <header class="modal-header"><div><p id="modalKicker" class="eyebrow">Details</p><h2 id="modalTitle">Details</h2></div><button id="modalCloseBtn" class="icon-btn" type="button" aria-label="Close dialog"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header>
             <div class="modal-body" id="modalBody"></div>
         </div>
     </div>
 
-    <div id="toast" class="toast hidden"></div>
-
+    <div id="chartTooltip" class="chart-tooltip" role="tooltip" hidden></div>
+    <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+    <div id="announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
     <script src="/app.js"></script>
 </body>
 </html>

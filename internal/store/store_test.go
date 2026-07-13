@@ -270,12 +270,12 @@ func TestSaveResult(t *testing.T) {
 	probe := createTestProbe(t, store, provider.ID, "gpt-4")
 
 	result := &model.Result{
-		ProbeID:      probe.ID,
-		Status:       model.StatusSuccess,
-		StatusCode:   200,
-		LatencyMs:    150,
-		RequestID:    "req-123",
-		CreatedAt:    time.Now(),
+		ProbeID:    probe.ID,
+		Status:     model.StatusSuccess,
+		StatusCode: 200,
+		LatencyMs:  150,
+		RequestID:  "req-123",
+		CreatedAt:  time.Now(),
 	}
 
 	if err := store.SaveResult(result); err != nil {
@@ -287,14 +287,14 @@ func TestSaveResult(t *testing.T) {
 	}
 
 	result2 := &model.Result{
-		ProbeID:       probe.ID,
-		Status:        model.StatusError,
-		StatusCode:    400,
-		ErrorCode:     "model_not_found",
-		ErrorMessage:  "Model not found",
-		RequestID:     "req-456",
-		RawError:      `{"error":{"code":"model_not_found"}}`,
-		CreatedAt:     time.Now(),
+		ProbeID:      probe.ID,
+		Status:       model.StatusError,
+		StatusCode:   400,
+		ErrorCode:    "model_not_found",
+		ErrorMessage: "Model not found",
+		RequestID:    "req-456",
+		RawError:     `{"error":{"code":"model_not_found"}}`,
+		CreatedAt:    time.Now(),
 	}
 
 	if err := store.SaveResult(result2); err != nil {
@@ -316,11 +316,11 @@ func TestGetStats(t *testing.T) {
 			status = model.StatusError
 		}
 		store.SaveResult(&model.Result{
-			ProbeID:   probe.ID,
-			Status:    status,
+			ProbeID:    probe.ID,
+			Status:     status,
 			StatusCode: 200,
-			LatencyMs: 100 + i*10,
-			CreatedAt: now.Add(-time.Duration(i) * time.Minute),
+			LatencyMs:  100 + i*10,
+			CreatedAt:  now.Add(-time.Duration(i) * time.Minute),
 		})
 	}
 
@@ -351,6 +351,135 @@ func TestGetStats(t *testing.T) {
 	ms := ps.Models[0]
 	if ms.SuccessRate != 80.0 {
 		t.Errorf("SuccessRate = %f, want 80.0", ms.SuccessRate)
+	}
+}
+
+func TestGetStatsIncludesEnabledProbesAndLatestDetails(t *testing.T) {
+	store := setupTestDB(t)
+	defer store.Close()
+
+	zulu := createTestProvider(t, store, "Zulu")
+	alpha := createTestProvider(t, store, "Alpha")
+	emptyProbe := createTestProbe(t, store, alpha.ID, "a-empty")
+	errorProbe := createTestProbe(t, store, alpha.ID, "z-error")
+	successProbe := createTestProbe(t, store, zulu.ID, "m-success")
+
+	disabledProbe := createTestProbe(t, store, alpha.ID, "disabled-probe")
+	disabledProbe.Enabled = false
+	if err := store.UpdateProbe(disabledProbe); err != nil {
+		t.Fatalf("disable probe: %v", err)
+	}
+	disabledProvider := createTestProvider(t, store, "DisabledProvider")
+	disabledProvider.Enabled = false
+	if err := store.UpdateProvider(disabledProvider); err != nil {
+		t.Fatalf("disable provider: %v", err)
+	}
+	createTestProbe(t, store, disabledProvider.ID, "disabled-provider-probe")
+
+	now := time.Now()
+	latestErrorTime := now
+	if err := store.SaveResult(&model.Result{
+		ProbeID:      errorProbe.ID,
+		Status:       model.StatusError,
+		StatusCode:   503,
+		ErrorCode:    "overloaded",
+		ErrorMessage: "try later",
+		RequestID:    "req-latest",
+		CreatedAt:    latestErrorTime,
+	}); err != nil {
+		t.Fatalf("save error result: %v", err)
+	}
+	// A later insertion with an older timestamp must not replace current status.
+	if err := store.SaveResult(&model.Result{
+		ProbeID:    errorProbe.ID,
+		Status:     model.StatusSuccess,
+		StatusCode: 200,
+		RequestID:  "req-old",
+		CreatedAt:  now.Add(-time.Minute),
+	}); err != nil {
+		t.Fatalf("save stale success result: %v", err)
+	}
+	if err := store.SaveResult(&model.Result{
+		ProbeID:      successProbe.ID,
+		Status:       model.StatusSuccess,
+		StatusCode:   204,
+		ErrorCode:    "stale-code",
+		ErrorMessage: "stale-message",
+		RequestID:    "req-success",
+		CreatedAt:    now,
+	}); err != nil {
+		t.Fatalf("save latest success: %v", err)
+	}
+
+	stats, err := store.GetStats(model.StatsQuery{Days: 2})
+	if err != nil {
+		t.Fatalf("GetStats: %v", err)
+	}
+	if len(stats) != 2 {
+		t.Fatalf("expected 2 enabled providers, got %d", len(stats))
+	}
+	if stats[0].ProviderName != "Alpha" || stats[1].ProviderName != "Zulu" {
+		t.Fatalf("providers not deterministic: %q, %q", stats[0].ProviderName, stats[1].ProviderName)
+	}
+	if len(stats[0].Models) != 2 {
+		t.Fatalf("expected 2 enabled Alpha models, got %d", len(stats[0].Models))
+	}
+	if stats[0].Models[0].ProbeID != emptyProbe.ID || stats[0].Models[0].Model != "a-empty" {
+		t.Fatalf("models not deterministic: %+v", stats[0].Models)
+	}
+	empty := stats[0].Models[0]
+	if empty.TotalProbes != 0 || empty.TodayTotal != 0 || empty.TodayUptime != nil || empty.LatestResultTime != nil {
+		t.Errorf("empty probe should have zero counts and null uptime/latest time: %+v", empty)
+	}
+
+	latestError := stats[0].Models[1]
+	if latestError.LastStatus != string(model.StatusError) || latestError.LatestStatusCode != 503 {
+		t.Errorf("latest result was not selected by timestamp: %+v", latestError)
+	}
+	if latestError.LatestErrorCode != "overloaded" || latestError.LatestErrorMessage != "try later" || latestError.LatestRequestID != "req-latest" {
+		t.Errorf("missing latest error details: %+v", latestError)
+	}
+	if latestError.LatestResultTime == nil || !latestError.LatestResultTime.Equal(latestErrorTime) {
+		t.Errorf("latest result time = %v, want %v", latestError.LatestResultTime, latestErrorTime)
+	}
+	if latestError.TodayTotal != 2 || latestError.TodaySuccessCount != 1 || latestError.TodayUptime == nil || *latestError.TodayUptime != 50 {
+		t.Errorf("today stats = total %d, success %d, uptime %v", latestError.TodayTotal, latestError.TodaySuccessCount, latestError.TodayUptime)
+	}
+
+	latestSuccess := stats[1].Models[0]
+	if latestSuccess.LatestErrorCode != "" || latestSuccess.LatestErrorMessage != "" {
+		t.Errorf("latest success leaked stale error fields: %+v", latestSuccess)
+	}
+	if latestSuccess.LatestRequestID != "req-success" {
+		t.Errorf("latest request ID = %q, want req-success", latestSuccess.LatestRequestID)
+	}
+}
+
+func TestGetStatsTodayUsesLocalCalendarDay(t *testing.T) {
+	store := setupTestDB(t)
+	defer store.Close()
+
+	provider := createTestProvider(t, store, "Provider")
+	probe := createTestProbe(t, store, provider.ID, "model")
+	now := time.Now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+
+	for _, result := range []*model.Result{
+		{ProbeID: probe.ID, Status: model.StatusError, CreatedAt: today.Add(-time.Second)},
+		{ProbeID: probe.ID, Status: model.StatusSuccess, CreatedAt: today.Add(time.Second)},
+	} {
+		if err := store.SaveResult(result); err != nil {
+			t.Fatalf("SaveResult: %v", err)
+		}
+	}
+
+	stats, err := store.GetStats(model.StatsQuery{Days: 2})
+	if err != nil {
+		t.Fatalf("GetStats: %v", err)
+	}
+	got := stats[0].Models[0]
+	if got.TodayTotal != 1 || got.TodaySuccessCount != 1 || got.TodayUptime == nil || *got.TodayUptime != 100 {
+		t.Errorf("local-day stats = total %d success %d uptime %v", got.TodayTotal, got.TodaySuccessCount, got.TodayUptime)
 	}
 }
 
@@ -526,11 +655,11 @@ func TestClearResults(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		store.SaveResult(&model.Result{
-			ProbeID:   probe.ID,
-			Status:    model.StatusSuccess,
+			ProbeID:    probe.ID,
+			Status:     model.StatusSuccess,
 			StatusCode: 200,
-			LatencyMs: 100,
-			CreatedAt: time.Now().Add(-time.Duration(i) * time.Minute),
+			LatencyMs:  100,
+			CreatedAt:  time.Now().Add(-time.Duration(i) * time.Minute),
 		})
 	}
 
@@ -563,11 +692,11 @@ func TestDeleteResult(t *testing.T) {
 	probe := createTestProbe(t, store, provider.ID, "gpt-4")
 
 	result := &model.Result{
-		ProbeID:   probe.ID,
-		Status:    model.StatusSuccess,
+		ProbeID:    probe.ID,
+		Status:     model.StatusSuccess,
 		StatusCode: 200,
-		LatencyMs: 100,
-		CreatedAt: time.Now(),
+		LatencyMs:  100,
+		CreatedAt:  time.Now(),
 	}
 	if err := store.SaveResult(result); err != nil {
 		t.Fatalf("failed to save result: %v", err)
@@ -732,11 +861,11 @@ func TestGetResultsForProbePage(t *testing.T) {
 			status = model.StatusError
 		}
 		store.SaveResult(&model.Result{
-			ProbeID:   probe.ID,
-			Status:    status,
+			ProbeID:    probe.ID,
+			Status:     status,
 			StatusCode: 200,
-			LatencyMs: 100,
-			CreatedAt: now.Add(-time.Duration(i) * time.Minute),
+			LatencyMs:  100,
+			CreatedAt:  now.Add(-time.Duration(i) * time.Minute),
 		})
 	}
 
@@ -800,11 +929,11 @@ func TestGetResultsCount(t *testing.T) {
 			status = model.StatusError
 		}
 		store.SaveResult(&model.Result{
-			ProbeID:   probe.ID,
-			Status:    status,
+			ProbeID:    probe.ID,
+			Status:     status,
 			StatusCode: 200,
-			LatencyMs: 100,
-			CreatedAt: now.Add(-time.Duration(i) * time.Minute),
+			LatencyMs:  100,
+			CreatedAt:  now.Add(-time.Duration(i) * time.Minute),
 		})
 	}
 
@@ -849,11 +978,11 @@ func TestGetHourlySummary(t *testing.T) {
 				status = model.StatusError
 			}
 			err := store.SaveResult(&model.Result{
-				ProbeID:   probe.ID,
-				Status:    status,
+				ProbeID:    probe.ID,
+				Status:     status,
 				StatusCode: 200,
-				LatencyMs: 100,
-				CreatedAt: now.Add(-time.Duration(hour) * time.Hour),
+				LatencyMs:  100,
+				CreatedAt:  now.Add(-time.Duration(hour) * time.Hour),
 			})
 			if err != nil {
 				t.Fatalf("failed to insert result for hour %d: %v", hour, err)
@@ -875,6 +1004,11 @@ func TestGetHourlySummary(t *testing.T) {
 			t.Errorf("hour %s: expected non-zero total", s.Hour)
 		}
 	}
+	for i := 1; i < len(summaries); i++ {
+		if summaries[i-1].Hour > summaries[i].Hour {
+			t.Fatalf("hourly output is not sorted: %q before %q", summaries[i-1].Hour, summaries[i].Hour)
+		}
+	}
 }
 
 func TestGetDailySummary(t *testing.T) {
@@ -893,11 +1027,15 @@ func TestGetDailySummary(t *testing.T) {
 				status = model.StatusError
 			}
 			store.SaveResult(&model.Result{
-				ProbeID:   probe.ID,
-				Status:    status,
-				StatusCode: 200,
-				LatencyMs: 100,
-				CreatedAt: now.AddDate(0, 0, -day),
+				ProbeID:          probe.ID,
+				Status:           status,
+				StatusCode:       200,
+				LatencyMs:        100,
+				TTFTMs:           50,
+				TPS:              15.5,
+				TPSExcludeTTFT:   20.0,
+				CompletionTokens: 30,
+				CreatedAt:        now.AddDate(0, 0, -day),
 			})
 		}
 	}
@@ -918,5 +1056,64 @@ func TestGetDailySummary(t *testing.T) {
 		if ds.Success < 0 || ds.Success > 100 {
 			t.Errorf("day %s: invalid success rate %.1f", ds.Date, ds.Success)
 		}
+		// On days with at least one success, avg latency/tps/ttft should be populated
+		successCount := ds.Total - ds.Failed
+		if successCount > 0 {
+			if ds.AvgLatencyMs <= 0 {
+				t.Errorf("day %s: expected positive avg_latency_ms, got %.1f", ds.Date, ds.AvgLatencyMs)
+			}
+			if ds.AvgTPS <= 0 {
+				t.Errorf("day %s: expected positive avg_tps, got %.2f", ds.Date, ds.AvgTPS)
+			}
+			if ds.AvgTPSExcludeTTFT <= 0 {
+				t.Errorf("day %s: expected positive avg_tps_exclude_ttft, got %.2f", ds.Date, ds.AvgTPSExcludeTTFT)
+			}
+			if ds.AvgTTFTMs <= 0 {
+				t.Errorf("day %s: expected positive avg_ttft_ms, got %.1f", ds.Date, ds.AvgTTFTMs)
+			}
+		}
+	}
+}
+
+func TestGetDailyStatsGroupedAndIncludesEmptyModels(t *testing.T) {
+	store := setupTestDB(t)
+	defer store.Close()
+
+	zulu := createTestProvider(t, store, "Zulu")
+	alpha := createTestProvider(t, store, "Alpha")
+	emptyProbe := createTestProbe(t, store, alpha.ID, "a-empty")
+	dataProbe := createTestProbe(t, store, alpha.ID, "b-data")
+	createTestProbe(t, store, zulu.ID, "z-empty")
+
+	now := time.Now()
+	for _, result := range []*model.Result{
+		{ProbeID: dataProbe.ID, Status: model.StatusSuccess, LatencyMs: 100, TTFTMs: 40, TPS: 10, TPSExcludeTTFT: 12, CreatedAt: now},
+		{ProbeID: dataProbe.ID, Status: model.StatusError, LatencyMs: 999, TTFTMs: 999, TPS: 999, TPSExcludeTTFT: 999, CreatedAt: now},
+		{ProbeID: dataProbe.ID, Status: model.StatusSuccess, LatencyMs: 200, TTFTMs: 60, TPS: 20, TPSExcludeTTFT: 24, CreatedAt: now.AddDate(0, 0, -1)},
+	} {
+		if err := store.SaveResult(result); err != nil {
+			t.Fatalf("SaveResult: %v", err)
+		}
+	}
+
+	stats, err := store.GetDailyStats(2)
+	if err != nil {
+		t.Fatalf("GetDailyStats: %v", err)
+	}
+	if len(stats) != 2 || stats[0].ProviderName != "Alpha" || stats[1].ProviderName != "Zulu" {
+		t.Fatalf("unexpected provider grouping/order: %+v", stats)
+	}
+	if len(stats[0].Models) != 2 || stats[0].Models[0].ProbeID != emptyProbe.ID {
+		t.Fatalf("unexpected model grouping/order: %+v", stats[0].Models)
+	}
+	if stats[0].Models[0].Daily == nil || len(stats[0].Models[0].Daily) != 0 {
+		t.Errorf("empty model daily series should be []: %#v", stats[0].Models[0].Daily)
+	}
+	daily := stats[0].Models[1].Daily
+	if len(daily) != 2 || daily[0].Date < daily[1].Date {
+		t.Fatalf("unexpected daily series: %+v", daily)
+	}
+	if daily[0].Total != 2 || daily[0].Failed != 1 || daily[0].Success != 50 || daily[0].AvgLatencyMs != 100 {
+		t.Errorf("today summary did not preserve metrics: %+v", daily[0])
 	}
 }

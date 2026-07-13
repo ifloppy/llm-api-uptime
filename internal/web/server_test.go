@@ -9,6 +9,7 @@ import (
 	"llm-api-uptime/internal/config"
 	"llm-api-uptime/internal/probe"
 	"llm-api-uptime/internal/store"
+	"llm-api-uptime/internal/update"
 )
 
 func setupTestServer(t *testing.T, cfg *config.Config) *Server {
@@ -32,6 +33,16 @@ func TestNewServer(t *testing.T) {
 
 	if server == nil {
 		t.Fatal("expected non-nil server")
+	}
+}
+
+func TestNewServerWithUpdater(t *testing.T) {
+	cfg := &config.Config{WebPort: 8080}
+	updater := fakeUpdater{status: update.Status{State: update.StateUpToDate}}
+	server := setupTestServer(t, cfg)
+	WithUpdater(updater, func() error { return nil })(server)
+	if server.updater == nil || server.restart == nil {
+		t.Fatal("updater dependencies were not configured")
 	}
 }
 
@@ -127,5 +138,30 @@ func TestServerStop_NotRunning(t *testing.T) {
 
 	if server.IsRunning() {
 		t.Error("server should still not be running")
+	}
+}
+
+func TestServerConcurrentStop(t *testing.T) {
+	cfg := &config.Config{WebPort: 18082, WebPublic: true}
+	server := setupTestServer(t, cfg)
+	if err := server.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{}, 2)
+	for range 2 {
+		go func() {
+			server.Stop()
+			done <- struct{}{}
+		}()
+	}
+	for range 2 {
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("concurrent Stop did not return")
+		}
+	}
+	if server.IsRunning() {
+		t.Error("server is still running")
 	}
 }

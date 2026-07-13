@@ -22,11 +22,24 @@ A lightweight tool for monitoring the uptime and stability of LLM API providers 
 - **Auto-cleanup**: Configurable data retention
 - **.env support**: Automatic loading of environment variables
 - **Authentication**: Optional password protection for Web UI
+- **Update checks**: Discover new GitHub releases and optionally stage a verified replacement binary
 
 ## Installation
 
+Download the binary for your operating system and architecture from [GitHub Releases](https://github.com/ifloppy/llm-api-uptime/releases), verify it against `checksums.txt`, and make it executable on Linux or macOS:
+
 ```bash
-go build -o llm-api-uptime .
+sha256sum -c checksums.txt --ignore-missing
+chmod +x llm-api-uptime_v1.2.3_linux_amd64
+mv llm-api-uptime_v1.2.3_linux_amd64 llm-api-uptime
+```
+
+Windows release binaries use the `.exe` suffix. Release assets are available for Linux, macOS (`darwin`), and Windows on `amd64` and `arm64`.
+
+To build from source instead:
+
+```bash
+make build
 ```
 
 ## Usage
@@ -39,6 +52,9 @@ The application starts both TUI and Web server (if enabled) simultaneously:
 
 # Start with TUI + Web server (WEB_ENABLED=true in .env)
 ./llm-api-uptime
+
+# Print version, commit, and build date
+./llm-api-uptime --version
 ```
 
 ## Configuration
@@ -60,7 +76,11 @@ cp .env.example .env
 | `WEB_PORT` | `8080` | Web server port |
 | `WEB_PUBLIC` | `false` | Bind to 0.0.0.0 (public access) |
 | `WEB_PASSWORD` | _(empty)_ | Access password (empty = no auth) |
+| `WEB_GUEST_ENABLED` | `false` | Enable read-only guest access without sensitive data |
 | `LOG_LEVEL` | `info` | Log level: debug, info, warn, error |
+| `UPDATE_CHECK_ENABLED` | `true` | Check GitHub Releases for newer versions |
+| `UPDATE_CHECK_INTERVAL` | `24h` | Interval between automatic update checks |
+| `UPDATE_AUTO_STAGE` | `true` | Download and stage a supported update for activation on restart |
 
 ## TUI Controls
 
@@ -101,10 +121,22 @@ When enabled, access at `http://localhost:8080` (or your configured port).
 
 ### Pages
 
-- **Dashboard**: Overview, engine status, web server status
+- **Dashboard**: Provider/model operational status, engine and access state, last probe time, provider/model counts, current availability and performance, and manual probe trigger
 - **Providers**: CRUD operations for API providers (with MaxTokens config)
 - **Models**: Add/delete probe targets, fetch from API
-- **Statistics**: View uptime stats, TPS metrics, export CSV, clear stats
+- **Statistics**: Filter summary data by 24 hours/7 days/30 days; inspect the latest 30-day charts and detailed uptime, TPS, and TTFT data; export CSV; or clear statistics with confirmation
+
+The dashboard's **Copy current status** action copies the current service summary to the clipboard for sharing. Destructive statistics and history actions require confirmation and are hidden in read-only guest mode.
+
+### Updates
+
+Update checks compare the running version with GitHub Releases. The dashboard shows the current and latest versions, update status, and release notes when available. When auto-stage is enabled, the updater may download the matching release binary, verify its SHA-256 value from `checksums.txt`, statically validate its executable format and architecture without running it, and stage it; the dashboard then offers **Restart to update**.
+
+Automatic staging is supported only on Linux and macOS (`darwin`) for `amd64` and `arm64`. Windows binaries are published for `amd64` and `arm64`, but Windows and all other platforms require a manual install.
+
+The Web UI restart action is available only when `WEB_PASSWORD` is configured and the request is authenticated. Without a password, the dashboard still reports that an update is staged, but the process must be restarted manually.
+
+SHA-256 detects accidental corruption and a mismatch between an asset and the downloaded checksum file. Because both files come from the same GitHub release and are not signed, checksums alone do not protect against compromise of the repository or release publisher. This project intentionally does not publish signatures.
 
 ### Authentication
 
@@ -157,6 +189,18 @@ For reasoning models (like DeepSeek), `completion_tokens` includes reasoning tok
 Provider,Model,Time Range,Total Probes,Success,Error,Timeout,Empty Response,Empty Content,Success Rate (%),Avg Latency (ms),Avg TPS,Downtime Periods
 ProviderA,gpt-4,2024-01-01 ~ 2024-01-07,1000,980,15,3,2,0,98.0,234,45.20,"2024-01-03 14:00 ~ 2024-01-03 14:30; 2024-01-05 09:15 ~ 2024-01-05 09:45"
 ```
+
+## CodeGraph
+
+CodeGraph is optional local code intelligence for contributors. Install its CLI, then initialize this checkout once:
+
+```bash
+codegraph init
+codegraph status
+codegraph explore "how does a probe result reach the dashboard?"
+```
+
+The file watcher normally keeps the graph current. Use `codegraph sync` after a branch switch or bulk change if needed, `codegraph impact <symbol>` before changing shared code, and `codegraph affected <files...>` to identify relevant tests. The generated `.codegraph/` index is ignored and must never be committed.
 
 ## License
 

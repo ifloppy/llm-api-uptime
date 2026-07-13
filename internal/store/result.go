@@ -114,7 +114,7 @@ func (s *Store) GetResultsForProbe(probeID int64, limit int, statusFilter string
 	}
 
 	query += `
-		ORDER BY created_at DESC
+		ORDER BY created_at DESC, id DESC
 		LIMIT ?
 	`
 	args = append(args, limit)
@@ -158,7 +158,7 @@ func (s *Store) GetResultsForProbePage(probeID int64, limit, offset int, statusF
 		args = append(args, statusFilter)
 	}
 
-	query += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`
+	query += ` ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`
 	args = append(args, limit, offset)
 
 	rows, err := s.db.Query(query, args...)
@@ -242,85 +242,25 @@ func (s *Store) GetHourlySummary(probeID int64, hours int) ([]model.HourlySummar
 		}
 	}
 
-	var summaries []model.HourlySummary
+	summaries := make([]model.HourlySummary, 0, len(hourMap))
 	for _, hs := range hourMap {
 		summaries = append(summaries, *hs)
 	}
-
-	return summaries, nil
-}
-
-func (s *Store) GetDailySummary(probeID int64, days int) ([]model.DailySummary, error) {
-	since := time.Now().AddDate(0, 0, -days)
-
-	rows, err := s.db.Query(`
-		SELECT created_at, status
-		FROM results
-		WHERE probe_id = ?
-		ORDER BY created_at
-	`, probeID)
-	if err != nil {
-		return nil, fmt.Errorf("get daily summary: %w", err)
-	}
-	defer rows.Close()
-
-	type rawResult struct {
-		CreatedAt time.Time
-		Status    string
-	}
-	var results []rawResult
-	for rows.Next() {
-		var createdAtStr string
-		var status string
-		if err := rows.Scan(&createdAtStr, &status); err != nil {
-			return nil, fmt.Errorf("scan: %w", err)
-		}
-		createdAt, err := parseTimeString(createdAtStr)
-		if err != nil {
-			continue
-		}
-		if createdAt.After(since) {
-			results = append(results, rawResult{CreatedAt: createdAt, Status: status})
-		}
-	}
-
-	dayMap := make(map[string]*model.DailySummary)
-	for _, r := range results {
-		dayKey := r.CreatedAt.Format("2006-01-02")
-		if _, ok := dayMap[dayKey]; !ok {
-			dayMap[dayKey] = &model.DailySummary{Date: dayKey}
-		}
-		dayMap[dayKey].Total++
-		if r.Status != "success" {
-			dayMap[dayKey].Failed++
-		}
-	}
-
-	var summaries []model.DailySummary
-	for _, ds := range dayMap {
-		if ds.Total > 0 {
-			ds.Success = float64(ds.Total-ds.Failed) / float64(ds.Total) * 100
-		}
-		summaries = append(summaries, *ds)
-	}
-
 	sort.Slice(summaries, func(i, j int) bool {
-		return summaries[i].Date > summaries[j].Date
+		return summaries[i].Hour < summaries[j].Hour
 	})
 
 	return summaries, nil
 }
 
-func (s *Store) GetStats(query model.StatsQuery) ([]model.ProviderStats, error) {
-	var since time.Time
-	if query.Days > 0 {
-		since = time.Now().AddDate(0, 0, -query.Days)
-	} else if query.Hours > 0 {
-		since = time.Now().Add(-time.Duration(query.Hours) * time.Hour)
-	} else {
-		since = time.Now().Add(-24 * time.Hour)
+func (s *Store) GetDailySummary(probeID int64, days int) ([]model.DailySummary, error) {
+	if days <= 0 {
+		days = 7
 	}
-
+	now := time.Now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	since := today.AddDate(0, 0, -(days - 1))
+	tomorrow := today.AddDate(0, 0, 1)
 	// Format as string for SQLite comparison - Go monotonic clock format
 	// uses "2006-01-02 15:04:05.999999999 -0700 MST m=+..." which SQLite
 	// can't parse, but string comparison works on the prefix.
@@ -328,35 +268,235 @@ func (s *Store) GetStats(query model.StatsQuery) ([]model.ProviderStats, error) 
 
 	rows, err := s.db.Query(`
 		SELECT
+			substr(created_at, 1, 10) as day,
+			COUNT(*) as total,
+			SUM(CASE WHEN status != 'success' THEN 1 ELSE 0 END) as failed,
+			AVG(CASE WHEN status = 'success' THEN latency_ms ELSE NULL END) as avg_latency,
+			AVG(CASE WHEN status = 'success' AND ttft_ms > 0 THEN ttft_ms ELSE NULL END) as avg_ttft,
+			AVG(CASE WHEN status = 'success' AND tps > 0 THEN tps ELSE NULL END) as avg_tps,
+			AVG(CASE WHEN status = 'success' AND tps_exclude_ttft > 0 THEN tps_exclude_ttft ELSE NULL END) as avg_tps_excl
+		FROM results
+		WHERE probe_id = ? AND created_at >= ? AND created_at < ?
+		GROUP BY substr(created_at, 1, 10)
+		ORDER BY day DESC
+	`, probeID, sinceStr, tomorrow.Format("2006-01-02 15:04:05"))
+	if err != nil {
+		return nil, fmt.Errorf("get daily summary: %w", err)
+	}
+	defer rows.Close()
+
+	summaries := make([]model.DailySummary, 0)
+	for rows.Next() {
+		var ds model.DailySummary
+		var failed int
+		var avgLatency, avgTTFT, avgTPS, avgTPSExcl sql.NullFloat64
+
+		if err := rows.Scan(&ds.Date, &ds.Total, &failed, &avgLatency, &avgTTFT, &avgTPS, &avgTPSExcl); err != nil {
+			return nil, fmt.Errorf("scan daily summary: %w", err)
+		}
+		ds.Failed = failed
+		if ds.Total > 0 {
+			ds.Success = float64(ds.Total-ds.Failed) / float64(ds.Total) * 100
+		}
+		if avgLatency.Valid {
+			ds.AvgLatencyMs = avgLatency.Float64
+		}
+		if avgTTFT.Valid {
+			ds.AvgTTFTMs = avgTTFT.Float64
+		}
+		if avgTPS.Valid {
+			ds.AvgTPS = avgTPS.Float64
+		}
+		if avgTPSExcl.Valid {
+			ds.AvgTPSExcludeTTFT = avgTPSExcl.Float64
+		}
+		summaries = append(summaries, ds)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate daily summary: %w", err)
+	}
+
+	return summaries, nil
+}
+
+func (s *Store) GetDailyStats(days int) ([]model.ProviderDailyStats, error) {
+	if days <= 0 {
+		days = 30
+	}
+	now := time.Now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	sinceStr := today.AddDate(0, 0, -(days - 1)).Format("2006-01-02 15:04:05")
+	tomorrowStr := today.AddDate(0, 0, 1).Format("2006-01-02 15:04:05")
+
+	rows, err := s.db.Query(`
+		SELECT
+			pr.name,
+			p.id,
+			p.model,
+			substr(r.created_at, 1, 10) AS day,
+			COUNT(r.id) AS total,
+			SUM(CASE WHEN r.status != 'success' THEN 1 ELSE 0 END) AS failed,
+			AVG(CASE WHEN r.status = 'success' THEN r.latency_ms ELSE NULL END) AS avg_latency,
+			AVG(CASE WHEN r.status = 'success' AND r.ttft_ms > 0 THEN r.ttft_ms ELSE NULL END) AS avg_ttft,
+			AVG(CASE WHEN r.status = 'success' AND r.tps > 0 THEN r.tps ELSE NULL END) AS avg_tps,
+			AVG(CASE WHEN r.status = 'success' AND r.tps_exclude_ttft > 0 THEN r.tps_exclude_ttft ELSE NULL END) AS avg_tps_excl
+		FROM probes p
+		JOIN providers pr ON pr.id = p.provider_id
+		LEFT JOIN results r ON r.probe_id = p.id AND r.created_at >= ? AND r.created_at < ?
+		WHERE p.enabled = 1 AND pr.enabled = 1
+		GROUP BY pr.id, pr.name, p.id, p.model, day
+		ORDER BY pr.name COLLATE NOCASE, pr.id, p.model COLLATE NOCASE, p.id, day DESC
+	`, sinceStr, tomorrowStr)
+	if err != nil {
+		return nil, fmt.Errorf("get daily stats: %w", err)
+	}
+	defer rows.Close()
+
+	stats := make([]model.ProviderDailyStats, 0)
+	var currentProvider string
+	var currentProbeID int64
+	for rows.Next() {
+		var providerName, modelName string
+		var probeID int64
+		var day sql.NullString
+		var ds model.DailySummary
+		var failed sql.NullInt64
+		var avgLatency, avgTTFT, avgTPS, avgTPSExcl sql.NullFloat64
+		if err := rows.Scan(&providerName, &probeID, &modelName, &day, &ds.Total, &failed,
+			&avgLatency, &avgTTFT, &avgTPS, &avgTPSExcl); err != nil {
+			return nil, fmt.Errorf("scan daily stats: %w", err)
+		}
+
+		if len(stats) == 0 || providerName != currentProvider {
+			stats = append(stats, model.ProviderDailyStats{
+				ProviderName: providerName,
+				Models:       make([]model.ModelDailyStats, 0),
+			})
+			currentProvider = providerName
+			currentProbeID = 0
+		}
+		provider := &stats[len(stats)-1]
+		if len(provider.Models) == 0 || probeID != currentProbeID {
+			provider.Models = append(provider.Models, model.ModelDailyStats{
+				ProbeID: probeID,
+				Model:   modelName,
+				Daily:   make([]model.DailySummary, 0),
+			})
+			currentProbeID = probeID
+		}
+		if !day.Valid || ds.Total == 0 {
+			continue
+		}
+
+		ds.Date = day.String
+		ds.Failed = int(failed.Int64)
+		ds.Success = float64(ds.Total-ds.Failed) / float64(ds.Total) * 100
+		if avgLatency.Valid {
+			ds.AvgLatencyMs = avgLatency.Float64
+		}
+		if avgTTFT.Valid {
+			ds.AvgTTFTMs = avgTTFT.Float64
+		}
+		if avgTPS.Valid {
+			ds.AvgTPS = avgTPS.Float64
+		}
+		if avgTPSExcl.Valid {
+			ds.AvgTPSExcludeTTFT = avgTPSExcl.Float64
+		}
+		provider.Models[len(provider.Models)-1].Daily = append(provider.Models[len(provider.Models)-1].Daily, ds)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate daily stats: %w", err)
+	}
+	return stats, nil
+}
+
+func (s *Store) GetStats(query model.StatsQuery) ([]model.ProviderStats, error) {
+	now := time.Now()
+	var since time.Time
+	if query.Days > 0 {
+		since = now.AddDate(0, 0, -query.Days)
+	} else if query.Hours > 0 {
+		since = now.Add(-time.Duration(query.Hours) * time.Hour)
+	} else {
+		since = now.Add(-24 * time.Hour)
+	}
+
+	// Format as string for SQLite comparison - Go monotonic clock format
+	// uses "2006-01-02 15:04:05.999999999 -0700 MST m=+..." which SQLite
+	// can't parse, but string comparison works on the prefix.
+	sinceStr := since.Format("2006-01-02 15:04:05")
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	todayStartStr := todayStart.Format("2006-01-02 15:04:05")
+	tomorrowStartStr := todayStart.AddDate(0, 0, 1).Format("2006-01-02 15:04:05")
+
+	rows, err := s.db.Query(`
+		SELECT
 			p.id as probe_id,
 			pr.name as provider_name,
 			p.model,
-			COUNT(*) as total_probes,
-			SUM(CASE WHEN r.status = 'success' THEN 1 ELSE 0 END) as success_count,
-			SUM(CASE WHEN r.status = 'error' THEN 1 ELSE 0 END) as error_count,
-			SUM(CASE WHEN r.status = 'timeout' THEN 1 ELSE 0 END) as timeout_count,
-			SUM(CASE WHEN r.status = 'empty_response' THEN 1 ELSE 0 END) as empty_resp_count,
-			SUM(CASE WHEN r.status = 'empty_content' THEN 1 ELSE 0 END) as empty_content_count,
-			AVG(CASE WHEN r.status = 'success' THEN r.latency_ms ELSE NULL END) as avg_latency,
-			AVG(CASE WHEN r.status = 'success' AND r.ttft_ms > 0 THEN r.ttft_ms ELSE NULL END) as avg_ttft,
-			AVG(CASE WHEN r.status = 'success' AND r.tps > 0 THEN r.tps ELSE NULL END) as avg_tps,
-			AVG(CASE WHEN r.status = 'success' AND r.tps_exclude_ttft > 0 THEN r.tps_exclude_ttft ELSE NULL END) as avg_tps_exclude_ttft,
-			COALESCE((SELECT r2.status FROM results r2 WHERE r2.probe_id = p.id ORDER BY r2.created_at DESC LIMIT 1), '') as last_status,
-			COALESCE((SELECT r2.tps FROM results r2 WHERE r2.probe_id = p.id ORDER BY r2.created_at DESC LIMIT 1), 0) as last_tps
-		FROM results r
-		JOIN probes p ON r.probe_id = p.id
-		JOIN providers pr ON p.provider_id = pr.id
-		WHERE r.created_at >= ?
-		GROUP BY p.id, pr.name, p.model
-		ORDER BY pr.name, p.model
-	`, sinceStr)
+			COALESCE(a.total_probes, 0),
+			COALESCE(a.success_count, 0),
+			COALESCE(a.error_count, 0),
+			COALESCE(a.timeout_count, 0),
+			COALESCE(a.empty_resp_count, 0),
+			COALESCE(a.empty_content_count, 0),
+			a.avg_latency,
+			a.avg_ttft,
+			a.avg_tps,
+			a.avg_tps_exclude_ttft,
+			COALESCE(t.today_total, 0),
+			COALESCE(t.today_success_count, 0),
+			COALESCE(latest.status, ''),
+			COALESCE(latest.tps, 0),
+			latest.created_at,
+			latest.status_code,
+			latest.error_code,
+			latest.error_message,
+			latest.request_id
+		FROM probes p
+		JOIN providers pr ON pr.id = p.provider_id
+		LEFT JOIN (
+			SELECT
+				probe_id,
+				COUNT(*) AS total_probes,
+				SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS success_count,
+				SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS error_count,
+				SUM(CASE WHEN status = 'timeout' THEN 1 ELSE 0 END) AS timeout_count,
+				SUM(CASE WHEN status = 'empty_response' THEN 1 ELSE 0 END) AS empty_resp_count,
+				SUM(CASE WHEN status = 'empty_content' THEN 1 ELSE 0 END) AS empty_content_count,
+				AVG(CASE WHEN status = 'success' THEN latency_ms ELSE NULL END) AS avg_latency,
+				AVG(CASE WHEN status = 'success' AND ttft_ms > 0 THEN ttft_ms ELSE NULL END) AS avg_ttft,
+				AVG(CASE WHEN status = 'success' AND tps > 0 THEN tps ELSE NULL END) AS avg_tps,
+				AVG(CASE WHEN status = 'success' AND tps_exclude_ttft > 0 THEN tps_exclude_ttft ELSE NULL END) AS avg_tps_exclude_ttft
+			FROM results
+			WHERE created_at >= ?
+			GROUP BY probe_id
+		) a ON a.probe_id = p.id
+		LEFT JOIN (
+			SELECT
+				probe_id,
+				COUNT(*) AS today_total,
+				SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS today_success_count
+			FROM results
+			WHERE created_at >= ? AND created_at < ?
+			GROUP BY probe_id
+		) t ON t.probe_id = p.id
+		LEFT JOIN results latest ON latest.id = (
+			SELECT r2.id FROM results r2
+			WHERE r2.probe_id = p.id
+			ORDER BY r2.created_at DESC, r2.id DESC
+			LIMIT 1
+		)
+		WHERE p.enabled = 1 AND pr.enabled = 1
+		ORDER BY pr.name COLLATE NOCASE, pr.id, p.model COLLATE NOCASE, p.id
+	`, sinceStr, todayStartStr, tomorrowStartStr)
 	if err != nil {
 		return nil, fmt.Errorf("get stats: %w", err)
 	}
 	defer rows.Close()
 
-	var stats []model.ProviderStats
-	providerMap := make(map[string]*model.ProviderStats)
+	stats := make([]model.ProviderStats, 0)
 
 	for rows.Next() {
 		var ms model.ModelStats
@@ -365,10 +505,17 @@ func (s *Store) GetStats(query model.StatsQuery) ([]model.ProviderStats, error) 
 		var avgTTFT sql.NullFloat64
 		var avgTPS sql.NullFloat64
 		var avgTPSExcludeTTFT sql.NullFloat64
+		var latestResultTime sql.NullString
+		var latestStatusCode sql.NullInt64
+		var latestErrorCode sql.NullString
+		var latestErrorMessage sql.NullString
+		var latestRequestID sql.NullString
 
 		err := rows.Scan(&ms.ProbeID, &providerName, &ms.Model, &ms.TotalProbes, &ms.SuccessCount,
 			&ms.ErrorCount, &ms.TimeoutCount, &ms.EmptyRespCount, &ms.EmptyContentCount,
-			&avgLatency, &avgTTFT, &avgTPS, &avgTPSExcludeTTFT, &ms.LastStatus, &ms.LastTPS)
+			&avgLatency, &avgTTFT, &avgTPS, &avgTPSExcludeTTFT,
+			&ms.TodayTotal, &ms.TodaySuccessCount, &ms.LastStatus, &ms.LastTPS,
+			&latestResultTime, &latestStatusCode, &latestErrorCode, &latestErrorMessage, &latestRequestID)
 		if err != nil {
 			return nil, fmt.Errorf("scan stats: %w", err)
 		}
@@ -387,31 +534,57 @@ func (s *Store) GetStats(query model.StatsQuery) ([]model.ProviderStats, error) 
 		}
 		ms.ProviderName = providerName
 		ms.StartTime = since
-		ms.EndTime = time.Now()
+		ms.EndTime = now
+		if ms.TodayTotal > 0 {
+			uptime := float64(ms.TodaySuccessCount) / float64(ms.TodayTotal) * 100
+			ms.TodayUptime = &uptime
+		}
+		if latestResultTime.Valid {
+			latestTime, err := parseTimeString(latestResultTime.String)
+			if err != nil {
+				return nil, fmt.Errorf("parse latest result time: %w", err)
+			}
+			ms.LatestResultTime = &latestTime
+		}
+		if latestStatusCode.Valid {
+			ms.LatestStatusCode = int(latestStatusCode.Int64)
+		}
+		if latestRequestID.Valid {
+			ms.LatestRequestID = latestRequestID.String
+		}
+		if ms.LastStatus != string(model.StatusSuccess) {
+			if latestErrorCode.Valid {
+				ms.LatestErrorCode = latestErrorCode.String
+			}
+			if latestErrorMessage.Valid {
+				ms.LatestErrorMessage = latestErrorMessage.String
+			}
+		}
 
 		if ms.TotalProbes > 0 {
 			ms.SuccessRate = float64(ms.SuccessCount) / float64(ms.TotalProbes) * 100
 		}
 
-		if ps, ok := providerMap[providerName]; ok {
-			ps.Models = append(ps.Models, ms)
-			ps.TotalProbes += ms.TotalProbes
-			ps.SuccessCount += ms.SuccessCount
-		} else {
-			providerMap[providerName] = &model.ProviderStats{
+		if len(stats) == 0 || stats[len(stats)-1].ProviderName != providerName {
+			stats = append(stats, model.ProviderStats{
 				ProviderName: providerName,
-				Models:       []model.ModelStats{ms},
-				TotalProbes:  ms.TotalProbes,
-				SuccessCount: ms.SuccessCount,
-			}
+				Models:       make([]model.ModelStats, 0),
+			})
 		}
+		ps := &stats[len(stats)-1]
+		ps.Models = append(ps.Models, ms)
+		ps.TotalProbes += ms.TotalProbes
+		ps.SuccessCount += ms.SuccessCount
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate stats: %w", err)
 	}
 
-	for _, ps := range providerMap {
+	for i := range stats {
+		ps := &stats[i]
 		if ps.TotalProbes > 0 {
 			ps.SuccessRate = float64(ps.SuccessCount) / float64(ps.TotalProbes) * 100
 		}
-		stats = append(stats, *ps)
 	}
 
 	return stats, nil

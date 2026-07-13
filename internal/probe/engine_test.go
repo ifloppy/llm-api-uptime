@@ -87,6 +87,15 @@ func TestEngineStartStop(t *testing.T) {
 	}
 }
 
+func TestEngineRejectsTriggersAfterStop(t *testing.T) {
+	engine, _ := setupTestEngine(t)
+	engine.Start()
+	engine.Stop()
+	if engine.TriggerOnce() {
+		t.Error("TriggerOnce accepted work after Stop")
+	}
+}
+
 func TestEngineTriggerOnce(t *testing.T) {
 	engine, db := setupTestEngine(t)
 	createTestSetup(t, db)

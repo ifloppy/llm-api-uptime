@@ -93,7 +93,9 @@ func AuthMiddleware(password string, guestEnabled bool) func(http.Handler) http.
 func isGuestAllowedPath(path string) bool {
 	allowed := []string{
 		"/api/status",
+		"/api/update",
 		"/api/stats",
+		"/api/stats/daily",
 		"/api/probes",
 		"/api/providers",
 		"/api/export/csv",
@@ -103,7 +105,8 @@ func isGuestAllowedPath(path string) bool {
 			return true
 		}
 	}
-	if strings.HasPrefix(path, "/api/probes/") && strings.HasSuffix(path, "/hourly") {
+	if strings.HasPrefix(path, "/api/probes/") &&
+		(strings.HasSuffix(path, "/hourly") || strings.HasSuffix(path, "/daily")) {
 		return true
 	}
 	return false

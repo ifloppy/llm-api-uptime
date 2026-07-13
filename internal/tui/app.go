@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"log/slog"
+	"sync"
 
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -33,16 +34,19 @@ type Page interface {
 }
 
 type App struct {
-	store       *store.Store
-	engine      *probe.Engine
-	config      *config.Config
-	logger      *slog.Logger
-	webServer   *web.Server
-	currentPage page
-	pages       map[page]Page
-	width       int
-	height      int
-	quitting    bool
+	store         *store.Store
+	engine        *probe.Engine
+	config        *config.Config
+	logger        *slog.Logger
+	webServer     *web.Server
+	currentPage   page
+	pages         map[page]Page
+	width         int
+	height        int
+	quitting      bool
+	program       *tea.Program
+	stopRequested bool
+	mu            sync.Mutex
 }
 
 func NewApp(store *store.Store, engine *probe.Engine, config *config.Config, logger *slog.Logger, webServer *web.Server) *App {
@@ -65,9 +69,30 @@ func NewApp(store *store.Store, engine *probe.Engine, config *config.Config, log
 }
 
 func (a *App) Run() error {
+	a.mu.Lock()
+	if a.stopRequested {
+		a.mu.Unlock()
+		return nil
+	}
 	p := tea.NewProgram(a, tea.WithAltScreen())
+	a.program = p
+	a.mu.Unlock()
 	_, err := p.Run()
+	a.mu.Lock()
+	a.program = nil
+	a.mu.Unlock()
 	return err
+}
+
+// Stop asks a running TUI program to exit. It is safe to call externally.
+func (a *App) Stop() {
+	a.mu.Lock()
+	a.stopRequested = true
+	p := a.program
+	a.mu.Unlock()
+	if p != nil {
+		p.Quit()
+	}
 }
 
 func (a *App) Init() tea.Cmd {

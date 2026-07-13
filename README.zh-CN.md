@@ -37,11 +37,24 @@ LLM API 提供商可用性监控工具。支持 OpenAI Compatible 和 Anthropic 
 - **自动清理**：可配置数据保留时长
 - **.env 支持**：自动加载环境变量文件
 - **身份认证**：Web UI 支持密码保护
+- **更新检查**：发现新的 GitHub Release，并可选择暂存已校验的替换程序
 
 ## 📦 安装
 
+从 [GitHub Releases](https://github.com/ifloppy/llm-api-uptime/releases) 下载与操作系统及架构匹配的二进制文件，使用 `checksums.txt` 校验；Linux 或 macOS 还需添加执行权限：
+
 ```bash
-go build -o llm-api-uptime .
+sha256sum -c checksums.txt --ignore-missing
+chmod +x llm-api-uptime_v1.2.3_linux_amd64
+mv llm-api-uptime_v1.2.3_linux_amd64 llm-api-uptime
+```
+
+Windows 发布文件带 `.exe` 后缀。发布目标包括 Linux、macOS（`darwin`）和 Windows 的 `amd64`、`arm64` 架构。
+
+也可以从源码构建：
+
+```bash
+make build
 ```
 
 ## 🚀 使用
@@ -54,6 +67,9 @@ go build -o llm-api-uptime .
 
 # TUI + Web（.env 中设置 WEB_ENABLED=true）
 ./llm-api-uptime
+
+# 显示版本、提交和构建时间
+./llm-api-uptime --version
 ```
 
 ## ⚙️ 配置
@@ -75,7 +91,11 @@ cp .env.example .env
 | `WEB_PORT` | `8080` | Web 端口 |
 | `WEB_PUBLIC` | `false` | 监听 0.0.0.0（公网访问） |
 | `WEB_PASSWORD` | _(空)_ | 访问密码（空=无认证） |
+| `WEB_GUEST_ENABLED` | `false` | 启用不显示敏感数据的只读访客访问 |
 | `LOG_LEVEL` | `info` | 日志级别：debug, info, warn, error |
+| `UPDATE_CHECK_ENABLED` | `true` | 检查 GitHub Releases 中的新版本 |
+| `UPDATE_CHECK_INTERVAL` | `24h` | 自动检查更新的间隔 |
+| `UPDATE_AUTO_STAGE` | `true` | 下载并暂存受支持的更新，重启后启用 |
 
 ## ⌨️ TUI 操作
 
@@ -116,10 +136,22 @@ cp .env.example .env
 
 | 页面 | 功能 |
 |------|------|
-| **仪表盘** | 引擎状态、Web 状态、上次探测时间、活跃概览 |
+| **仪表盘** | 按服务商/模型显示运行状态、引擎与访问状态、上次探测时间、服务商/模型数量、当前可用率与性能，并支持手动探测 |
 | **服务商** | 增删改查 API 服务商（含 MaxTokens 配置） |
 | **模型** | 添加/删除探测目标，从 API 一键获取模型列表 |
-| **统计** | 可用率、TPS、导出 CSV、清空统计 |
+| **统计** | 按 24 小时/7 天/30 天筛选汇总数据，查看最近 30 天图表及可用率、TPS、TTFT 明细，导出 CSV 或确认后清空统计 |
+
+仪表盘的 **Copy current status** 操作会把当前服务状态摘要复制到剪贴板，便于分享。清空统计、删除历史等破坏性操作需要确认，并且在只读访客模式下隐藏。
+
+### 更新
+
+更新检查会比较当前版本与 GitHub Releases。仪表盘会显示当前版本、最新版本、更新状态，并在可用时提供发布说明。启用自动暂存后，更新程序可以下载匹配的发布二进制文件，根据 `checksums.txt` 校验 SHA-256，在不运行下载文件的情况下静态检查可执行格式和架构并暂存；随后仪表盘会提供 **Restart to update** 操作。
+
+自动暂存仅支持 Linux 和 macOS（`darwin`）的 `amd64`、`arm64` 架构。Windows 会发布 `amd64`、`arm64` 二进制文件，但 Windows 及其他平台需要手动安装。
+
+只有配置了 `WEB_PASSWORD` 并通过认证后，Web UI 才会提供重启操作。未配置密码时，仪表盘仍会提示更新已经暂存，但需要手动重启进程。
+
+SHA-256 可以发现意外损坏，以及发布文件与所下载校验清单之间的不一致。由于二进制文件和校验清单均来自同一个 GitHub Release 且没有签名，仅依赖校验和无法防御仓库或发布者账户被攻破。本项目按约定不发布签名。
 
 ### 认证
 
@@ -173,6 +205,18 @@ TPS = completion_tokens / (latency_ms / 1000)
 Provider,Model,Time Range,Total Probes,Success,Error,Timeout,Empty Response,Empty Content,Success Rate (%),Avg Latency (ms),Avg TPS,Downtime Periods
 ProviderA,gpt-4,2024-01-01 ~ 2024-01-07,1000,980,15,3,2,0,98.0,234,45.20,"2024-01-03 14:00 ~ 2024-01-03 14:30; 2024-01-05 09:15 ~ 2024-01-05 09:45"
 ```
+
+## CodeGraph
+
+CodeGraph 是供贡献者使用的可选本地代码分析工具。安装 CLI 后，在当前仓库中初始化一次：
+
+```bash
+codegraph init
+codegraph status
+codegraph explore "how does a probe result reach the dashboard?"
+```
+
+文件监视器通常会自动保持图索引最新。切换分支或批量修改后可按需运行 `codegraph sync`；修改共享符号前运行 `codegraph impact <symbol>`；使用 `codegraph affected <files...>` 查找相关测试。生成的 `.codegraph/` 索引已被忽略，绝不能提交。
 
 ## 📝 License
 

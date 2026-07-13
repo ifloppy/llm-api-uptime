@@ -18,7 +18,11 @@ type Engine struct {
 	stopCh   chan struct{}
 	doneCh   chan struct{}
 	running  bool
+	stopping bool
+	stopped  bool
+	stopDone chan struct{}
 	mu       sync.Mutex
+	work     sync.WaitGroup
 }
 
 func NewEngine(store *store.Store, config *config.Config, logger *slog.Logger) *Engine {
@@ -33,11 +37,12 @@ func NewEngine(store *store.Store, config *config.Config, logger *slog.Logger) *
 
 func (e *Engine) Start() {
 	e.mu.Lock()
-	if e.running {
+	if e.running || e.stopping {
 		e.mu.Unlock()
 		return
 	}
 	e.running = true
+	e.stopped = false
 	e.stopCh = make(chan struct{})
 	e.doneCh = make(chan struct{})
 	e.mu.Unlock()
@@ -47,15 +52,33 @@ func (e *Engine) Start() {
 
 func (e *Engine) Stop() {
 	e.mu.Lock()
-	if !e.running {
+	if e.stopping {
+		done := e.stopDone
 		e.mu.Unlock()
+		<-done
 		return
 	}
-	e.running = false
-	close(e.stopCh)
+	e.stopping = true
+	e.stopped = true
+	e.stopDone = make(chan struct{})
+	stopDone := e.stopDone
+	done := e.doneCh
+	wasRunning := e.running
+	if e.running {
+		e.running = false
+		close(e.stopCh)
+	}
 	e.mu.Unlock()
 
-	<-e.doneCh
+	if wasRunning {
+		<-done
+	}
+	e.work.Wait()
+	e.mu.Lock()
+	e.stopping = false
+	e.stopDone = nil
+	close(stopDone)
+	e.mu.Unlock()
 }
 
 func (e *Engine) IsRunning() bool {
@@ -163,7 +186,19 @@ func (e *Engine) probeOne(p model.ProbeWithProvider) {
 	}
 }
 
-func (e *Engine) TriggerOnce() {
+func (e *Engine) TriggerOnce() bool {
+	e.mu.Lock()
+	if e.stopped || e.stopping {
+		e.mu.Unlock()
+		return false
+	}
+	e.work.Add(1)
+	e.mu.Unlock()
+
 	e.logger.Info("manual probe triggered")
-	go e.probeAll()
+	go func() {
+		defer e.work.Done()
+		e.probeAll()
+	}()
+	return true
 }

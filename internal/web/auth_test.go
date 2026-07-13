@@ -182,11 +182,14 @@ func TestGuestModeAllowedPaths(t *testing.T) {
 
 	paths := []string{
 		"/api/status",
+		"/api/update",
 		"/api/stats",
+		"/api/stats/daily",
 		"/api/probes",
 		"/api/providers",
 		"/api/export/csv",
 		"/api/probes/42/hourly",
+		"/api/probes/42/daily",
 	}
 
 	for _, path := range paths {

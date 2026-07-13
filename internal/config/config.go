@@ -7,32 +7,40 @@ import (
 )
 
 type Config struct {
-	ProbeInterval    time.Duration
-	ProbeTimeout     time.Duration
-	ProbeConcurrency int
-	DBPath           string
-	DataRetention    time.Duration
-	WebEnabled       bool
-	WebPort          int
-	WebPublic        bool
-	WebPassword      string
-	WebGuestEnabled  bool
-	LogLevel         string
+	ProbeInterval       time.Duration
+	ProbeTimeout        time.Duration
+	ProbeConcurrency    int
+	DBPath              string
+	DataRetention       time.Duration
+	WebEnabled          bool
+	WebPort             int
+	WebPublic           bool
+	WebPassword         string
+	WebGuestEnabled     bool
+	UpdateCheckEnabled  bool
+	UpdateCheckInterval time.Duration
+	UpdateAutoStage     bool
+	LogLevel            string
 }
+
+const minUpdateCheckInterval = time.Minute
 
 func Load() *Config {
 	cfg := &Config{
-		ProbeInterval:    5 * time.Minute,
-		ProbeTimeout:     30 * time.Second,
-		ProbeConcurrency: 3,
-		DBPath:           "./data/uptime.db",
-		DataRetention:    720 * time.Hour,
-		WebEnabled:       false,
-		WebPort:          8080,
-		WebPublic:        false,
-		WebPassword:      "",
-		WebGuestEnabled:  false,
-		LogLevel:         "info",
+		ProbeInterval:       5 * time.Minute,
+		ProbeTimeout:        30 * time.Second,
+		ProbeConcurrency:    3,
+		DBPath:              "./data/uptime.db",
+		DataRetention:       720 * time.Hour,
+		WebEnabled:          false,
+		WebPort:             8080,
+		WebPublic:           false,
+		WebPassword:         "",
+		WebGuestEnabled:     false,
+		UpdateCheckEnabled:  true,
+		UpdateCheckInterval: 24 * time.Hour,
+		UpdateAutoStage:     true,
+		LogLevel:            "info",
 	}
 
 	if v := os.Getenv("PROBE_INTERVAL"); v != "" {
@@ -83,6 +91,24 @@ func Load() *Config {
 
 	if v := os.Getenv("WEB_GUEST_ENABLED"); v != "" {
 		cfg.WebGuestEnabled = v == "true" || v == "1"
+	}
+
+	if v := os.Getenv("UPDATE_CHECK_ENABLED"); v != "" {
+		if enabled, err := strconv.ParseBool(v); err == nil {
+			cfg.UpdateCheckEnabled = enabled
+		}
+	}
+
+	if v := os.Getenv("UPDATE_CHECK_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d >= minUpdateCheckInterval {
+			cfg.UpdateCheckInterval = d
+		}
+	}
+
+	if v := os.Getenv("UPDATE_AUTO_STAGE"); v != "" {
+		if enabled, err := strconv.ParseBool(v); err == nil {
+			cfg.UpdateAutoStage = enabled
+		}
 	}
 
 	if v := os.Getenv("LOG_LEVEL"); v != "" {

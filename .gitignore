@@ -20,6 +20,8 @@ data/
 .idea/
 .vscode/
 .opencode/
+.codegraph/
+.playwright-mcp/
 *.swp
 *.swo
 
