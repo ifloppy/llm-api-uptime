@@ -268,12 +268,14 @@ function renderDashboard(stats) {
             return `
                 <article class="model-row ${unavailable ? 'is-down' : ''}">
                     <div class="model-identity">
-                        <span class="state-dot ${state}" aria-hidden="true"></span>
-                        <div><strong>${escapeHtml(model.model || 'Unknown model')}</strong><span>${available ? 'Available' : statusLabel(model.last_status)}</span></div>
+                        <div class="identity-row">
+                            <span class="state-dot ${state}" aria-hidden="true"></span>
+                            <div class="identity-text"><strong>${escapeHtml(model.model || 'Unknown model')}</strong><span>${available ? 'Available' : statusLabel(model.last_status)}</span></div>
+                        </div>
+                        ${renderErrorPanel(model, error, unavailable, providerIndex, modelIndex)}
                     </div>
                     <div class="model-metric"><span>Today uptime</span><strong class="tabular ${today === null ? '' : rateClass(today)}">${formatPercent(today)}</strong></div>
                     <div class="model-metric"><span>Current status</span><strong>${available ? 'Operational' : unavailable ? 'Unavailable' : 'Unknown'}</strong></div>
-                    <div class="current-error">${renderErrorPanel(model, error, unavailable, providerIndex, modelIndex)}</div>
                     <div class="row-actions">
                         <button class="icon-text-btn" type="button" data-action="copy-model" data-provider-index="${providerIndex}" data-model-index="${modelIndex}">${copyIcon()}<span>Copy model</span></button>
                         ${unavailable && error ? `<button class="icon-text-btn" type="button" data-action="copy-error" data-provider-index="${providerIndex}" data-model-index="${modelIndex}">${copyIcon()}<span>Copy error</span></button>` : ''}
@@ -294,38 +296,24 @@ function renderDashboard(stats) {
 
 function renderErrorPanel(model, error, unavailable, providerIndex, modelIndex) {
     if (!unavailable) {
-        return `<div class="error-summary"><span>Current error</span><code class="is-empty">No issues</code></div>`;
+        return '';
     }
-    const summary = summarizeError(error);
     const detailsId = `error-detail-${providerIndex}-${modelIndex}`;
     const httpLine = finiteNumber(model.status_code, 0) ? `<dt>HTTP status</dt><dd>${finiteNumber(model.status_code, 0)}</dd>` : '';
     const codeLine = model.error_code ? `<dt>Error code</dt><dd>${escapeHtml(textValue(model.error_code))}</dd>` : '';
     const requestLine = model.request_id ? `<dt>Request ID</dt><dd>${escapeHtml(textValue(model.request_id))}</dd>` : '';
     const checkedLine = model.latest_result_time ? `<dt>Last checked</dt><dd>${escapeHtml(formatDateTime(model.latest_result_time))}</dd>` : '';
     const hasDetails = !!(httpLine || codeLine || requestLine || checkedLine);
-    return `<div class="error-summary">
+    return `<div class="current-error">
         <span>Current error</span>
-        <code title="${escapeAttribute(error)}">${escapeHtml(summary)}</code>
+        <code class="error-text">${escapeHtml(error || 'No error message')}</code>
         <div class="error-actions">
             ${hasDetails ? `<button class="icon-text-btn" type="button" data-action="toggle-error" data-error-target="${detailsId}" aria-expanded="false" aria-controls="${detailsId}">Details</button>` : ''}
             ${!isGuest && Number(model.probe_id) ? `<button class="icon-text-btn" type="button" data-action="open-logs" data-provider-index="${providerIndex}" data-model-index="${modelIndex}">Logs</button>` : ''}
             <button class="icon-text-btn" type="button" data-action="copy-error" data-provider-index="${providerIndex}" data-model-index="${modelIndex}">Copy</button>
         </div>
-        ${hasDetails ? `<div class="error-full" id="${detailsId}" hidden><dl>${checkedLine}${httpLine}${codeLine}${requestLine}<dt>Message</dt><dd>${escapeHtml(error)}</dd></dl></div>` : ''}
+        ${hasDetails ? `<div class="error-full" id="${detailsId}" hidden><dl>${checkedLine}${httpLine}${codeLine}${requestLine}</dl></div>` : ''}
     </div>`;
-}
-
-function summarizeError(error) {
-    if (!error) return 'No error message';
-    const match = error.match(/^(?:Post|Get|Put|Delete|Patch)\s+"([^"]+)"\s*:?\s*(.*)$/i);
-    if (match) {
-        const url = match[1];
-        const tail = match[2].trim();
-        const tailCompact = tail.replace(/\s+/g, ' ');
-        if (tailCompact) return `${url} — ${tailCompact}`;
-        return url;
-    }
-    return error.replace(/\s+/g, ' ');
 }
 
 function toggleErrorDetails(targetId, button) {
@@ -819,52 +807,35 @@ function renderProviderChart(providerIndex, provider) {
         const isMuted = highlightMode && !isHighlighted;
         const color = CHART_COLORS[seriesIndex % CHART_COLORS.length];
         const byDate = new Map(series.points.map(point => [point.date, point]));
-        if (chartPreferences.mode === 'per-day') {
-            allDates.forEach((date, index) => {
-                const x = chartX(index, allDates.length, left, plotWidth);
-                const dayPoints = dailyProvider.models
-                    .map(series => ({ model: series.model, color: CHART_COLORS[dailyProvider.models.indexOf(series) % CHART_COLORS.length], point: byDate.has(series.model) ? byDate.get(series.model) : null }))
-                    .filter(item => item.point)
-                    .map(item => {
-                        const byDateInner = new Map(series.points.map(p => [p.date, p]));
-                        return { model: series.model, color: CHART_COLORS[dailyProvider.models.indexOf(series) % CHART_COLORS.length], point: byDateInner.get(date) };
-                    });
-                const dayHit = svgElement('circle', { cx: x, cy: top + plotHeight / 2, r: 12, class: 'chart-hit', tabindex: '0', role: 'button', 'aria-describedby': 'chartTooltip', 'aria-label': `${formatLongDate(date)} ${metric.label} for all models` });
-                dayHit.addEventListener('pointerenter', event => showDayTooltip(event, date, dailyProvider.models, metric, allDates));
-                dayHit.addEventListener('pointermove', event => showDayTooltip(event, date, dailyProvider.models, metric, allDates));
-                dayHit.addEventListener('pointerdown', event => showDayTooltip(event, date, dailyProvider.models, metric, allDates));
-                dayHit.addEventListener('focus', event => showDayTooltip(event, date, dailyProvider.models, metric, allDates));
-                dayHit.addEventListener('pointerleave', event => { if (document.activeElement !== event.currentTarget) hideChartTooltip(); });
-                dayHit.addEventListener('blur', hideChartTooltip);
-                svg.append(dayHit);
-            });
-        } else {
-            let pathData = '';
-            let drawing = false;
-            allDates.forEach((date, index) => {
-                const point = byDate.get(date);
-                const value = point && point[metric.field];
-                if (!Number.isFinite(value)) { drawing = false; return; }
-                const x = chartX(index, allDates.length, left, plotWidth);
-                const y = top + plotHeight - (Math.max(0, value) / maxValue) * plotHeight;
-                pathData += `${drawing ? ' L' : ' M'} ${x.toFixed(2)} ${y.toFixed(2)}`;
-                drawing = true;
-            });
-            if (pathData) {
-                const path = svgElement('path', { d: pathData.trim(), class: 'chart-line' + (isMuted ? ' is-muted' : ''), stroke: color, 'stroke-width': isHighlighted ? 3 : (highlightMode ? 1.4 : 2.2) });
-                path.setAttribute('opacity', isMuted ? '0.25' : (highlightMode && !isHighlighted ? '0.35' : '1'));
-                svg.append(path);
-            }
 
-            allDates.forEach((date, index) => {
-                const point = byDate.get(date);
-                const value = point && point[metric.field];
-                if (!Number.isFinite(value)) return;
-                const x = chartX(index, allDates.length, left, plotWidth);
-                const y = top + plotHeight - (Math.max(0, value) / maxValue) * plotHeight;
-                const dot = svgElement('circle', { cx: x, cy: y, r: isHighlighted ? 4 : 3, fill: color, class: 'chart-dot' + (isMuted ? ' is-muted' : ''), 'aria-hidden': 'true' });
-                dot.setAttribute('opacity', isMuted ? '0.25' : (highlightMode && !isHighlighted ? '0.35' : '1'));
-                svg.append(dot);
+        let pathData = '';
+        let drawing = false;
+        allDates.forEach((date, index) => {
+            const point = byDate.get(date);
+            const value = point && point[metric.field];
+            if (!Number.isFinite(value)) { drawing = false; return; }
+            const x = chartX(index, allDates.length, left, plotWidth);
+            const y = top + plotHeight - (Math.max(0, value) / maxValue) * plotHeight;
+            pathData += `${drawing ? ' L' : ' M'} ${x.toFixed(2)} ${y.toFixed(2)}`;
+            drawing = true;
+        });
+        if (pathData) {
+            const path = svgElement('path', { d: pathData.trim(), class: 'chart-line' + (isMuted ? ' is-muted' : ''), stroke: color, 'stroke-width': isHighlighted ? 3 : (highlightMode ? 1.4 : 2.2) });
+            path.setAttribute('opacity', isMuted ? '0.25' : (highlightMode && !isHighlighted ? '0.35' : '1'));
+            svg.append(path);
+        }
+
+        allDates.forEach((date, index) => {
+            const point = byDate.get(date);
+            const value = point && point[metric.field];
+            if (!Number.isFinite(value)) return;
+            const x = chartX(index, allDates.length, left, plotWidth);
+            const y = top + plotHeight - (Math.max(0, value) / maxValue) * plotHeight;
+            const dot = svgElement('circle', { cx: x, cy: y, r: isHighlighted ? 4 : 3, fill: color, class: 'chart-dot' + (isMuted ? ' is-muted' : ''), 'aria-hidden': 'true' });
+            dot.setAttribute('opacity', isMuted ? '0.25' : (highlightMode && !isHighlighted ? '0.35' : '1'));
+            svg.append(dot);
+
+            if (chartPreferences.mode === 'per-point') {
                 const hit = svgElement('circle', { cx: x, cy: y, r: 12, class: 'chart-hit', tabindex: '0', role: 'button', 'aria-describedby': 'chartTooltip', 'aria-label': `${series.model}, ${formatLongDate(date)}, ${metric.label} ${formatMetric(value, metric.unit, metric.decimals)}` });
                 if (isMuted) hit.setAttribute('aria-disabled', 'true');
                 const show = event => showChartTooltip(event, series.model, date, value, metric, point, color);
@@ -875,9 +846,25 @@ function renderProviderChart(providerIndex, provider) {
                 hit.addEventListener('pointerleave', event => { if (document.activeElement !== event.currentTarget) hideChartTooltip(); });
                 hit.addEventListener('blur', hideChartTooltip);
                 svg.append(hit);
-            });
-        }
+            }
+        });
     });
+
+    if (chartPreferences.mode === 'per-day') {
+        const colWidth = allDates.length > 1 ? plotWidth / (allDates.length - 1) : plotWidth;
+        const hitWidth = Math.max(colWidth * 0.8, 16);
+        allDates.forEach((date, index) => {
+            const x = chartX(index, allDates.length, left, plotWidth);
+            const rect = svgElement('rect', { x: Math.max(left, x - hitWidth / 2), y: top, width: Math.min(hitWidth, width - right - Math.max(left, x - hitWidth / 2)), height: plotHeight, class: 'chart-hit chart-day-hit', tabindex: '0', role: 'button', 'aria-describedby': 'chartTooltip', 'aria-label': `${formatLongDate(date)} all models` });
+            rect.addEventListener('pointerenter', event => showDayTooltip(event, date, dailyProvider.models, metric));
+            rect.addEventListener('pointermove', event => showDayTooltip(event, date, dailyProvider.models, metric));
+            rect.addEventListener('pointerdown', event => showDayTooltip(event, date, dailyProvider.models, metric));
+            rect.addEventListener('focus', event => showDayTooltip(event, date, dailyProvider.models, metric));
+            rect.addEventListener('pointerleave', event => { if (document.activeElement !== event.currentTarget) hideChartTooltip(); });
+            rect.addEventListener('blur', hideChartTooltip);
+            svg.append(rect);
+        });
+    }
 
     const legend = document.createElement('div');
     legend.className = 'chart-legend';
@@ -935,7 +922,7 @@ function showChartTooltip(event, model, date, value, metric, point, color) {
     positionChartTooltip(tooltip, event);
 }
 
-function showDayTooltip(event, date, seriesList, metric, allDates) {
+function showDayTooltip(event, date, seriesList, metric) {
     const tooltip = document.getElementById('chartTooltip');
     tooltip.replaceChildren();
     const heading = document.createElement('strong');
