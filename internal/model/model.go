@@ -142,6 +142,17 @@ type ProviderDailyStats struct {
 	Models       []ModelDailyStats `json:"models"`
 }
 
+type ModelHourlyStats struct {
+	ProbeID int64           `json:"probe_id"`
+	Model   string          `json:"model"`
+	Hourly  []HourlySummary `json:"hourly"`
+}
+
+type ProviderHourlyStats struct {
+	ProviderName string             `json:"provider_name"`
+	Models       []ModelHourlyStats `json:"models"`
+}
+
 type CSVRow struct {
 	ProviderName      string
 	Model             string

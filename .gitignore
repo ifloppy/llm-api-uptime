@@ -24,6 +24,7 @@ data/
 .playwright-mcp/
 *.swp
 *.swo
+.review-binaries/
 
 # OS
 .DS_Store

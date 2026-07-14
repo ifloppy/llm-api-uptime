@@ -111,7 +111,7 @@
 
             <section id="stats" class="page" aria-labelledby="statsTitle" hidden>
                 <header class="page-header stats-header">
-                    <div><p class="eyebrow">Historical analysis</p><h1 id="statsTitle">Statistics</h1><p class="page-description">Summary range controls the table. Charts default to 7 days and can be switched to 30 days.</p></div>
+                    <div><p class="eyebrow">Historical analysis</p><h1 id="statsTitle">Statistics</h1><p class="page-description">Summary range controls the table. Charts support Today (hourly SLA), 7 days, and 30 days.</p></div>
                     <div class="controls">
                         <label class="select-label" for="timeRange"><span>Summary range</span><select id="timeRange"><option value="24">24 hours</option><option value="168">7 days</option><option value="720">30 days</option></select></label>
                         <button id="statsCopyStatusBtn" class="btn btn-secondary" type="button">Copy current status</button>
@@ -123,6 +123,7 @@
                 <div id="chartControlsBar" class="chart-controls-bar" aria-label="Chart display preferences">
                     <div class="chart-controls-group" role="group" aria-label="Chart range">
                         <span class="chart-controls-label">Chart range</span>
+                        <button id="chartRangeToday" class="seg-btn" type="button" aria-pressed="false">Today</button>
                         <button id="chartRange7" class="seg-btn" type="button" aria-pressed="true">7 days</button>
                         <button id="chartRange30" class="seg-btn" type="button" aria-pressed="false">30 days</button>
                     </div>

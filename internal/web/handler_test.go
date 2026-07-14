@@ -573,6 +573,80 @@ func TestHandleDailyStats(t *testing.T) {
 	}
 }
 
+func TestHandleHourlyStats(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	provider := createTestProviderInDB(t, db, "TestProvider")
+	probe := &model.Probe{ProviderID: provider.ID, Model: "gpt-4", Enabled: true}
+	if err := db.CreateProbe(probe); err != nil {
+		t.Fatalf("CreateProbe: %v", err)
+	}
+	if err := db.SaveResult(&model.Result{ProbeID: probe.ID, Status: model.StatusSuccess, LatencyMs: 100, CreatedAt: time.Now()}); err != nil {
+		t.Fatalf("SaveResult: %v", err)
+	}
+	if err := db.SaveResult(&model.Result{ProbeID: probe.ID, Status: model.StatusError, LatencyMs: 50, CreatedAt: time.Now().Add(-10 * time.Minute)}); err != nil {
+		t.Fatalf("SaveResult error: %v", err)
+	}
+
+	req := markGuest(httptest.NewRequest("GET", "/api/stats/hourly?hours=24", nil))
+	rec := httptest.NewRecorder()
+	handler.handleHourlyStats(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var stats []model.ProviderHourlyStats
+	if err := json.NewDecoder(rec.Body).Decode(&stats); err != nil {
+		t.Fatalf("decode hourly stats: %v", err)
+	}
+	if len(stats) != 1 || len(stats[0].Models) != 1 || len(stats[0].Models[0].Hourly) == 0 {
+		t.Fatalf("unexpected hourly stats shape: %+v", stats)
+	}
+	total := 0
+	failed := 0
+	for _, hour := range stats[0].Models[0].Hourly {
+		total += hour.Total
+		failed += hour.Failed
+	}
+	if total != 2 || failed != 1 {
+		t.Errorf("hourly totals = %d failed=%d, want 2 and 1", total, failed)
+	}
+}
+
+func TestHandleGetDowntimePeriods(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	provider := createTestProviderInDB(t, db, "TestProvider")
+	probe := &model.Probe{ProviderID: provider.ID, Model: "gpt-4", Enabled: true}
+	if err := db.CreateProbe(probe); err != nil {
+		t.Fatalf("CreateProbe: %v", err)
+	}
+	now := time.Now()
+	for _, result := range []*model.Result{
+		{ProbeID: probe.ID, Status: model.StatusSuccess, CreatedAt: now.Add(-20 * time.Minute)},
+		{ProbeID: probe.ID, Status: model.StatusError, CreatedAt: now.Add(-10 * time.Minute)},
+		{ProbeID: probe.ID, Status: model.StatusSuccess, CreatedAt: now},
+	} {
+		if err := db.SaveResult(result); err != nil {
+			t.Fatalf("SaveResult: %v", err)
+		}
+	}
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/probes/%d/downtime?hours=24", probe.ID), nil)
+	req.SetPathValue("id", fmt.Sprintf("%d", probe.ID))
+	rec := httptest.NewRecorder()
+	handler.handleGetDowntimePeriods(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var periods []model.DowntimePeriod
+	if err := json.NewDecoder(rec.Body).Decode(&periods); err != nil {
+		t.Fatalf("decode downtime: %v", err)
+	}
+	if len(periods) != 1 {
+		t.Fatalf("expected 1 downtime period, got %+v", periods)
+	}
+}
+
 func TestHandleExportCSV(t *testing.T) {
 	handler, db := setupTestHandler(t)
 	provider := createTestProviderInDB(t, db, "TestProvider")

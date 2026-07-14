@@ -1,6 +1,6 @@
 const API_BASE = '/api';
 const DEFAULT_CHART_DAYS = 7;
-const CHART_RANGE_OPTIONS = [7, 30];
+const CHART_RANGE_OPTIONS = [0, 7, 30];
 const CHART_COLORS = ['#2563eb', '#d97706', '#059669', '#7c3aed', '#db2777', '#0891b2', '#9333ea', '#4d7c0f'];
 const METRICS = {
     uptime: { label: 'Uptime', field: 'success', unit: '%', decimals: 1 },
@@ -16,6 +16,7 @@ let providerRows = [];
 let modelRows = [];
 let statsRows = [];
 let dailyStats = [];
+let hourlyStats = [];
 let chartLoadError = '';
 let chartsHidden = false;
 let modalOpener = null;
@@ -25,6 +26,8 @@ let statsLoadGeneration = 0;
 let modalGeneration = 0;
 const chartMetrics = new Map();
 const collapsedCharts = new Set();
+const expandedTimelines = new Set();
+const timelineCache = new Map();
 const chartPreferences = {
     rangeDays: DEFAULT_CHART_DAYS,
     mode: 'per-point',
@@ -68,16 +71,23 @@ function persistChartPreferences() {
 }
 
 function applyChartControlsState() {
+    const rangeToday = document.getElementById('chartRangeToday');
     const range7 = document.getElementById('chartRange7');
     const range30 = document.getElementById('chartRange30');
     const modePerPoint = document.getElementById('chartModePerPoint');
     const modePerDay = document.getElementById('chartModePerDay');
-    if (range7 && range30) {
-        const isSeven = chartPreferences.rangeDays === 7;
-        range7.classList.toggle('active', isSeven);
-        range7.setAttribute('aria-pressed', String(isSeven));
-        range30.classList.toggle('active', !isSeven);
-        range30.setAttribute('aria-pressed', String(!isSeven));
+    const range = chartPreferences.rangeDays;
+    if (rangeToday) {
+        rangeToday.classList.toggle('active', range === 0);
+        rangeToday.setAttribute('aria-pressed', String(range === 0));
+    }
+    if (range7) {
+        range7.classList.toggle('active', range === 7);
+        range7.setAttribute('aria-pressed', String(range === 7));
+    }
+    if (range30) {
+        range30.classList.toggle('active', range === 30);
+        range30.setAttribute('aria-pressed', String(range === 30));
     }
     if (modePerPoint && modePerDay) {
         const isPerPoint = chartPreferences.mode === 'per-point';
@@ -85,12 +95,18 @@ function applyChartControlsState() {
         modePerPoint.setAttribute('aria-pressed', String(isPerPoint));
         modePerDay.classList.toggle('active', !isPerPoint);
         modePerDay.setAttribute('aria-pressed', String(!isPerPoint));
+        modePerDay.textContent = range === 0 ? 'Per hour' : 'Per day';
+        modePerPoint.textContent = 'Per point';
     }
     const hint = document.getElementById('chartControlsHint');
     if (hint) {
-        hint.textContent = chartPreferences.mode === 'per-day'
-            ? 'Hover any day in the chart to see every model on that date.'
-            : 'Hover any data point in the chart for a single model\'s value.';
+        if (chartPreferences.mode === 'per-day') {
+            hint.textContent = range === 0
+                ? 'Hover any hour in the chart to see every model at that hour.'
+                : 'Hover any day in the chart to see every model on that date.';
+        } else {
+            hint.textContent = 'Hover any data point in the chart for a single model\'s value.';
+        }
     }
 }
 
@@ -111,6 +127,7 @@ function initActions() {
     document.getElementById('toggleChartsBtn').addEventListener('click', toggleAllCharts);
     document.getElementById('exportCsvBtn').addEventListener('click', exportCSV);
     document.getElementById('clearStatsBtn').addEventListener('click', clearStats);
+    document.getElementById('chartRangeToday').addEventListener('click', () => setChartRange(0));
     document.getElementById('chartRange7').addEventListener('click', () => setChartRange(7));
     document.getElementById('chartRange30').addEventListener('click', () => setChartRange(30));
     document.getElementById('chartModePerPoint').addEventListener('click', () => setChartMode('per-point'));
@@ -263,7 +280,7 @@ function renderDashboard(stats) {
             const state = currentState(model);
             const available = state === 'available';
             const unavailable = state === 'unavailable';
-            const error = currentError(model);
+            const error = displayErrorMessage(currentError(model));
             const today = todayUptime(model);
             return `
                 <article class="model-row ${unavailable ? 'is-down' : ''}">
@@ -272,15 +289,15 @@ function renderDashboard(stats) {
                             <span class="state-dot ${state}" aria-hidden="true"></span>
                             <div class="identity-text"><strong>${escapeHtml(model.model || 'Unknown model')}</strong><span>${available ? 'Available' : statusLabel(model.last_status)}</span></div>
                         </div>
-                        ${renderErrorPanel(model, error, unavailable, providerIndex, modelIndex)}
                     </div>
-                    <div class="model-metric"><span>Today uptime</span><strong class="tabular ${today === null ? '' : rateClass(today)}">${formatPercent(today)}</strong></div>
-                    <div class="model-metric"><span>Current status</span><strong>${available ? 'Operational' : unavailable ? 'Unavailable' : 'Unknown'}</strong></div>
+                    <div class="model-metric model-metric-uptime"><span>Today uptime</span><strong class="tabular ${today === null ? '' : rateClass(today)}">${formatPercent(today)}</strong></div>
+                    <div class="model-metric model-metric-status"><span>Current status</span><strong>${available ? 'Operational' : unavailable ? 'Unavailable' : 'Unknown'}</strong></div>
                     <div class="row-actions">
                         <button class="icon-text-btn" type="button" data-action="copy-model" data-provider-index="${providerIndex}" data-model-index="${modelIndex}">${copyIcon()}<span>Copy model</span></button>
                         ${unavailable && error ? `<button class="icon-text-btn" type="button" data-action="copy-error" data-provider-index="${providerIndex}" data-model-index="${modelIndex}">${copyIcon()}<span>Copy error</span></button>` : ''}
                         ${!isGuest && Number(model.probe_id) ? `<button class="icon-text-btn" type="button" data-action="logs" data-provider-index="${providerIndex}" data-model-index="${modelIndex}">${logsIcon()}<span>Request logs</span></button>` : ''}
                     </div>
+                    ${renderErrorPanel(model, error, unavailable, providerIndex, modelIndex)}
                 </article>`;
         }).join('');
 
@@ -367,7 +384,7 @@ function modelReport(providerName, model, includeProvider = true) {
         if (finiteNumber(model.status_code, 0)) lines.push(`HTTP status: ${finiteNumber(model.status_code, 0)}`);
         if (model.error_code) lines.push(`Error code: ${reportValue(model.error_code)}`);
         if (model.request_id) lines.push(`Request ID: ${reportValue(model.request_id)}`);
-        if (currentError(model)) lines.push(`Error: ${reportValue(currentError(model))}`);
+        if (currentError(model)) lines.push(`Error: ${reportValue(displayErrorMessage(currentError(model)))}`);
     }
     return lines.join('\n');
 }
@@ -572,9 +589,13 @@ async function loadStats() {
     const container = document.getElementById('statsProviders');
     container.innerHTML = loadingMarkup('Loading summary and trend charts');
     const hours = Number(document.getElementById('timeRange').value);
-    const [summaryResult, dailyResult] = await Promise.allSettled([
+    const isToday = chartPreferences.rangeDays === 0;
+    const chartPromise = isToday
+        ? apiCall(`/stats/hourly?hours=${todayHoursElapsed()}`)
+        : apiCall(`/stats/daily?days=${chartPreferences.rangeDays}`);
+    const [summaryResult, chartResult] = await Promise.allSettled([
         apiCall(`/stats?hours=${hours}`),
-        apiCall(`/stats/daily?days=${chartPreferences.rangeDays}`)
+        chartPromise
     ]);
     if (generation !== statsLoadGeneration || currentPage !== 'stats') return;
 
@@ -585,8 +606,15 @@ async function loadStats() {
         return;
     }
     statsRows = asArray(summaryResult.value);
-    dailyStats = dailyResult.status === 'fulfilled' ? normalizeDailyStats(dailyResult.value) : [];
-    chartLoadError = dailyResult.status === 'rejected' ? dailyResult.reason.message : '';
+    if (isToday) {
+        hourlyStats = chartResult.status === 'fulfilled' ? normalizeHourlyStats(chartResult.value) : [];
+        dailyStats = [];
+    } else {
+        dailyStats = chartResult.status === 'fulfilled' ? normalizeDailyStats(chartResult.value) : [];
+        hourlyStats = [];
+    }
+    chartLoadError = chartResult.status === 'rejected' ? chartResult.reason.message : '';
+    timelineCache.clear();
     renderStats();
 }
 
@@ -598,15 +626,19 @@ function renderStats() {
         return;
     }
 
-    const rangeLabel = chartPreferences.rangeDays === 7 ? '7-day' : '30-day';
-    const subtitle = chartPreferences.mode === 'per-day' ? 'Daily aggregates, all models shown per date' : 'Daily aggregates, one model can be highlighted';
+    const rangeLabel = chartPreferences.rangeDays === 0 ? "Today's hourly" : chartPreferences.rangeDays === 7 ? '7-day' : '30-day';
+    const bucket = chartPreferences.rangeDays === 0 ? 'hour' : 'date';
+    const subtitle = chartPreferences.mode === 'per-day'
+        ? `Aggregates by ${bucket}, all models shown per ${bucket}`
+        : `Aggregates by ${bucket}, one model can be highlighted`;
 
     container.innerHTML = providers.map((provider, providerIndex) => {
         const metric = chartMetrics.get(provider.provider_name) || 'uptime';
         const collapsed = collapsedCharts.has(provider.provider_name);
-        const selectedModel = chartPreferences.selectedModelByProvider[provider.provider_name] || null;
         const rows = provider.models.map((model, modelIndex) => {
             const hasData = finiteNumber(model.total_probes, 0) > 0;
+            const timelineKey = `${providerIndex}:${modelIndex}`;
+            const timelineOpen = expandedTimelines.has(timelineKey);
             return `<tr class="stats-model-row" data-provider-index="${providerIndex}" data-model-index="${modelIndex}">
             <td data-label="Status"><span class="status-with-dot"><span class="state-dot ${currentState(model)}" aria-hidden="true"></span>${currentState(model) === 'available' ? 'Up' : currentState(model) === 'unavailable' ? 'Down' : 'Unknown'}</span></td>
             <td data-label="Model"><code>${escapeHtml(model.model)}</code></td>
@@ -614,7 +646,10 @@ function renderStats() {
             <td data-label="Uptime" class="tabular ${hasData ? rateClass(numberValue(model.success_rate)) : ''}">${hasData ? formatPercent(numberValue(model.success_rate)) : 'No data'}</td>
             <td data-label="Latency" class="tabular">${hasData ? formatMetric(numberValue(model.avg_latency_ms), 'ms', 0) : '-'}</td>
             <td data-label="TTFT" class="tabular">${formatMetric(numberValue(model.avg_ttft_ms), 'ms', 0, true)}</td>
-            <td data-label="Actions"><div class="table-actions">${!isGuest && Number(model.probe_id) ? `<button class="btn btn-secondary btn-sm" type="button" data-action="logs" data-provider-index="${providerIndex}" data-model-index="${modelIndex}">Logs</button><button class="btn btn-danger-outline btn-sm" type="button" data-action="delete" data-provider-index="${providerIndex}" data-model-index="${modelIndex}">Delete</button>` : '<span class="muted">Read only</span>'}</div></td>
+            <td data-label="Actions"><div class="table-actions">${Number(model.probe_id) ? `<button class="btn btn-secondary btn-sm" type="button" data-action="timeline" data-provider-index="${providerIndex}" data-model-index="${modelIndex}" aria-expanded="${timelineOpen}">${timelineOpen ? 'Hide timeline' : 'Timeline'}</button>` : ''}${!isGuest && Number(model.probe_id) ? `<button class="btn btn-secondary btn-sm" type="button" data-action="logs" data-provider-index="${providerIndex}" data-model-index="${modelIndex}">Logs</button><button class="btn btn-danger-outline btn-sm" type="button" data-action="delete" data-provider-index="${providerIndex}" data-model-index="${modelIndex}">Delete</button>` : isGuest ? '<span class="muted">Read only</span>' : ''}</div></td>
+        </tr>
+        <tr class="timeline-row ${timelineOpen ? '' : 'is-collapsed'}" data-timeline-row="${timelineKey}" ${timelineOpen ? '' : 'hidden'}>
+            <td colspan="7"><div class="timeline-panel" id="timeline-${providerIndex}-${modelIndex}">${timelineOpen ? loadingMarkup('Loading uptime timeline') : ''}</div></td>
         </tr>`;
         }).join('');
         const providerHasData = finiteNumber(provider.total_probes, 0) > 0;
@@ -632,6 +667,12 @@ function renderStats() {
     updateChartsToggle();
     if (!chartsHidden && !chartLoadError) providers.forEach((provider, index) => {
         if (!collapsedCharts.has(provider.provider_name)) renderProviderChart(index, provider);
+    });
+    providers.forEach((provider, providerIndex) => {
+        provider.models.forEach((model, modelIndex) => {
+            const key = `${providerIndex}:${modelIndex}`;
+            if (expandedTimelines.has(key)) loadModelTimeline(providerIndex, modelIndex, provider, model);
+        });
     });
 }
 
@@ -667,6 +708,7 @@ function handleStatsAction(event) {
         renderProviderChart(providerIndex, provider);
     }
     const model = modelIndex >= 0 ? provider.models[modelIndex] : null;
+    if (action === 'timeline' && model) toggleModelTimeline(providerIndex, modelIndex, model);
     if (action === 'logs' && model) showProbeDetails(Number(model.probe_id), provider.provider_name, model.model);
     if (action === 'delete' && model) deleteModelFromStats(provider, model);
 }
@@ -736,9 +778,13 @@ function normalizeDailyPoint(point) {
     const total = finiteNumber(point.total ?? point.total_probes, 0);
     const failed = finiteNumber(point.failed ?? point.failed_probes, 0);
     const hasSuccessfulSample = total > failed;
+    const successRaw = point.success ?? point.uptime ?? point.success_rate;
+    const success = successRaw === null || successRaw === undefined
+        ? (total > 0 ? ((total - failed) / total) * 100 : null)
+        : numberValue(successRaw);
     return {
         date: String(point.date ?? point.day ?? '').slice(0, 10),
-        success: numberValue(point.success ?? point.uptime ?? point.success_rate),
+        success: Number.isFinite(success) ? success : null,
         avg_latency_ms: hasSuccessfulSample ? numberValue(point.avg_latency_ms ?? point.latency_ms ?? point.latency) : null,
         avg_ttft_ms: hasSuccessfulSample ? numberValue(point.avg_ttft_ms ?? point.ttft_ms ?? point.ttft) : null,
         total,
@@ -746,32 +792,216 @@ function normalizeDailyPoint(point) {
     };
 }
 
+function normalizeHourlyStats(payload) {
+    const result = [];
+    const source = Array.isArray(payload) ? payload : asArray(payload && (payload.providers || payload.data || payload.stats));
+    source.forEach(item => {
+        const providerName = textValue(item.provider_name ?? item.provider ?? item.name ?? 'Unknown provider');
+        let provider = result.find(row => row.provider_name === providerName);
+        if (!provider) {
+            provider = { provider_name: providerName, models: [] };
+            result.push(provider);
+        }
+        asArray(item.models).forEach(model => {
+            const points = asArray(model.hourly ?? model.hours ?? model.points ?? model.data).map(normalizeHourlyPoint).filter(point => point.date);
+            provider.models.push({
+                model: textValue(model.model ?? model.model_name ?? model.name ?? 'Unknown model'),
+                probe_id: Number(model.probe_id) || 0,
+                points
+            });
+        });
+    });
+    return result;
+}
+
+function normalizeHourlyPoint(point) {
+    const total = finiteNumber(point.total ?? point.total_probes, 0);
+    const failed = finiteNumber(point.failed ?? point.failed_probes, 0);
+    const hourRaw = textValue(point.hour ?? point.date ?? point.time ?? '');
+    let key = hourRaw;
+    // Canonical key: "YYYY-MM-DD HH:00" (backend may send "YYYY-MM-DD HH:00:00").
+    const match = hourRaw.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2})/);
+    if (match) key = `${match[1]} ${match[2]}:00`;
+    const success = total > 0 ? ((total - failed) / total) * 100 : null;
+    return {
+        date: key,
+        success,
+        avg_latency_ms: null,
+        avg_ttft_ms: null,
+        total,
+        failed
+    };
+}
+
+function todayHoursElapsed() {
+    const now = new Date();
+    return Math.min(24, Math.max(1, now.getHours() + 1));
+}
+
+function todayHourKeys() {
+    const now = new Date();
+    const count = todayHoursElapsed();
+    const keys = [];
+    for (let hour = 0; hour < count; hour += 1) {
+        const stamp = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, 0, 0, 0);
+        const year = stamp.getFullYear();
+        const month = String(stamp.getMonth() + 1).padStart(2, '0');
+        const day = String(stamp.getDate()).padStart(2, '0');
+        const hh = String(stamp.getHours()).padStart(2, '0');
+        keys.push(`${year}-${month}-${day} ${hh}:00`);
+    }
+    return keys;
+}
+
+function chartBucketKeys() {
+    return chartPreferences.rangeDays === 0 ? todayHourKeys() : recentCalendarDates(chartPreferences.rangeDays);
+}
+
+function chartSeriesForProvider(providerName) {
+    if (chartPreferences.rangeDays === 0) return hourlyStats.find(item => item.provider_name === providerName) || null;
+    return dailyStats.find(item => item.provider_name === providerName) || null;
+}
+
+function formatBucketLabel(bucket) {
+    if (chartPreferences.rangeDays === 0) {
+        const hour = Number(String(bucket).slice(11, 13));
+        if (Number.isFinite(hour)) return `${String(hour).padStart(2, '0')}:00`;
+        return bucket;
+    }
+    return formatShortDate(bucket);
+}
+
+function formatBucketLong(bucket) {
+    if (chartPreferences.rangeDays === 0) {
+        const date = new Date(String(bucket).replace(' ', 'T'));
+        if (Number.isNaN(date.getTime())) return bucket;
+        return date.toLocaleString(document.documentElement.lang, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    }
+    return formatLongDate(bucket);
+}
+
+function summaryRangeHours() {
+    const hours = Number(document.getElementById('timeRange')?.value);
+    return Number.isFinite(hours) && hours > 0 ? hours : 24;
+}
+
+function toggleModelTimeline(providerIndex, modelIndex, model) {
+    const key = `${providerIndex}:${modelIndex}`;
+    if (expandedTimelines.has(key)) expandedTimelines.delete(key);
+    else expandedTimelines.add(key);
+    renderStats();
+}
+
+async function loadModelTimeline(providerIndex, modelIndex, provider, model) {
+    const key = `${providerIndex}:${modelIndex}`;
+    const panel = document.getElementById(`timeline-${providerIndex}-${modelIndex}`);
+    if (!panel || !expandedTimelines.has(key)) return;
+    const probeId = Number(model.probe_id);
+    if (!probeId) {
+        panel.innerHTML = emptyMarkup('No timeline', 'This model has no probe id.');
+        return;
+    }
+    const hours = summaryRangeHours();
+    const cacheKey = `${probeId}:${hours}`;
+    if (timelineCache.has(cacheKey)) {
+        panel.innerHTML = renderTimelineMarkup(timelineCache.get(cacheKey), hours);
+        return;
+    }
+    panel.innerHTML = loadingMarkup('Loading uptime timeline');
+    try {
+        const periods = asArray(await apiCall(`/probes/${probeId}/downtime?hours=${hours}`)).map(period => ({
+            start: new Date(period.start),
+            end: new Date(period.end)
+        })).filter(period => !Number.isNaN(period.start.getTime()) && !Number.isNaN(period.end.getTime()));
+        timelineCache.set(cacheKey, periods);
+        if (!expandedTimelines.has(key)) return;
+        panel.innerHTML = renderTimelineMarkup(periods, hours);
+    } catch (error) {
+        if (!expandedTimelines.has(key)) return;
+        panel.innerHTML = errorMarkup('Timeline unavailable', error.message);
+    }
+}
+
+function renderTimelineMarkup(periods, hours) {
+    const now = Date.now();
+    const rangeStart = now - hours * 3600 * 1000;
+    const rangeMs = Math.max(1, now - rangeStart);
+    const clipped = periods.map(period => ({
+        start: Math.max(rangeStart, period.start.getTime()),
+        end: Math.min(now, period.end.getTime())
+    })).filter(period => period.end > period.start);
+    const downtimeMs = clipped.reduce((sum, period) => sum + (period.end - period.start), 0);
+    const uptimePct = Math.max(0, Math.min(100, ((rangeMs - downtimeMs) / rangeMs) * 100));
+    const segments = clipped.map(period => {
+        const left = ((period.start - rangeStart) / rangeMs) * 100;
+        const width = ((period.end - period.start) / rangeMs) * 100;
+        return `<span class="segment" style="left:${left.toFixed(3)}%;width:${Math.max(width, 0.35).toFixed(3)}%" title="${escapeAttribute(formatDateTime(new Date(period.start)))} – ${escapeAttribute(formatDateTime(new Date(period.end)))}"></span>`;
+    }).join('');
+    const list = clipped.length
+        ? `<ul class="timeline-periods">${clipped.map(period => {
+            const duration = formatDurationMs(period.end - period.start);
+            return `<li><span class="pill-down">Down</span><span>${escapeHtml(formatDateTime(new Date(period.start)))} – ${escapeHtml(formatDateTime(new Date(period.end)))}</span><strong class="tabular">${escapeHtml(duration)}</strong></li>`;
+        }).join('')}</ul>`
+        : emptyMarkup('No downtime in range', 'All recorded probes in this window succeeded.');
+    return `<div class="timeline-meta"><span>Window <strong>${hours}h</strong></span><span>Uptime <strong class="${rateClass(uptimePct)}">${uptimePct.toFixed(1)}%</strong></span><span>Downtime segments <strong>${clipped.length}</strong></span></div>
+        <div class="timeline-bar" role="img" aria-label="Uptime timeline for the selected window">${segments}</div>
+        ${list}`;
+}
+
+function formatDurationMs(ms) {
+    const totalSec = Math.max(0, Math.round(ms / 1000));
+    if (totalSec < 60) return `${totalSec}s`;
+    const minutes = Math.floor(totalSec / 60);
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    const remMin = minutes % 60;
+    if (hours < 48) return remMin ? `${hours}h ${remMin}m` : `${hours}h`;
+    const days = Math.floor(hours / 24);
+    const remHours = hours % 24;
+    return remHours ? `${days}d ${remHours}h` : `${days}d`;
+}
+
+function displayErrorMessage(raw) {
+    let text = textValue(raw).trim();
+    if (!text) return '';
+    // Strip SDK request line prefixes like: POST "https://host/path": 403 {...}
+    text = text.replace(/^(?:POST|GET|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+(?:"[^"]+"|'[^']+'|\S+)\s*(?::\s*|\s+)?/i, '');
+    text = text.replace(/^(?:POST|GET|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+https?:\/\/\S+\s*/i, '');
+    // Common wrappers: "error: ", "Error code: xxx "
+    text = text.replace(/^(?:error|error message)\s*:\s*/i, '');
+    text = text.replace(/^Error code:\s*[^\s]+\s*/i, '');
+    text = text.replace(/^\d{3}\s+/, '');
+    text = text.trim();
+    return text || textValue(raw).trim();
+}
+
 function renderProviderChart(providerIndex, provider) {
     const container = document.getElementById(`provider-chart-${providerIndex}`);
     if (!container) return;
     container.replaceChildren();
-    const dailyProvider = dailyStats.find(item => item.provider_name === provider.provider_name);
-    if (!dailyProvider || !dailyProvider.models.some(series => series.points.length)) {
-        const rangeLabel = chartPreferences.rangeDays === 7 ? '7-day' : '30-day';
-        container.innerHTML = emptyMarkup(`No ${rangeLabel} chart data`, 'Daily aggregates will appear after probes have run.');
+    const seriesProvider = chartSeriesForProvider(provider.provider_name);
+    const isToday = chartPreferences.rangeDays === 0;
+    const rangeLabel = isToday ? "today's hourly" : chartPreferences.rangeDays === 7 ? '7-day' : '30-day';
+    if (!seriesProvider || !seriesProvider.models.some(series => series.points.length)) {
+        container.innerHTML = emptyMarkup(`No ${rangeLabel} chart data`, isToday
+            ? 'Hourly SLA will appear after probes have run today.'
+            : 'Daily aggregates will appear after probes have run.');
         return;
     }
 
     const metricKey = chartMetrics.get(provider.provider_name) || 'uptime';
     const metric = METRICS[metricKey];
-    const allDates = recentCalendarDates(chartPreferences.rangeDays);
+    const allDates = chartBucketKeys();
     if (!allDates.length) {
-        const rangeLabel = chartPreferences.rangeDays === 7 ? '7-day' : '30-day';
-        container.innerHTML = emptyMarkup(`No ${rangeLabel} chart data`, 'Daily aggregates will appear after probes have run.');
+        container.innerHTML = emptyMarkup(`No ${rangeLabel} chart data`, 'No chart buckets available for the selected range.');
         return;
     }
 
-    const rangeLabel = chartPreferences.rangeDays === 7 ? '7 days' : '30 days';
     const selectedModel = chartPreferences.selectedModelByProvider[provider.provider_name] || '';
     const highlightMode = Boolean(selectedModel);
     const visibleSeries = highlightMode
-        ? dailyProvider.models.filter(series => series.model === selectedModel)
-        : dailyProvider.models;
+        ? seriesProvider.models.filter(series => series.model === selectedModel)
+        : seriesProvider.models;
     const values = visibleSeries.flatMap(series => series.points.map(point => point[metric.field]).filter(Number.isFinite));
     const maxValue = metricKey === 'uptime' ? 100 : niceMax(Math.max(...values, 0));
     const width = 960;
@@ -782,7 +1012,7 @@ function renderProviderChart(providerIndex, provider) {
     const bottom = 48;
     const plotWidth = width - left - right;
     const plotHeight = height - top - bottom;
-    const svg = svgElement('svg', { viewBox: `0 0 ${width} ${height}`, class: 'line-chart', role: 'group', 'aria-label': `${provider.provider_name} ${metric.label} trends for the latest ${rangeLabel}` });
+    const svg = svgElement('svg', { viewBox: `0 0 ${width} ${height}`, class: 'line-chart', role: 'group', 'aria-label': `${provider.provider_name} ${metric.label} trends for ${rangeLabel}` });
 
     for (let tick = 0; tick <= 4; tick += 1) {
         const y = top + plotHeight * (tick / 4);
@@ -798,11 +1028,11 @@ function renderProviderChart(providerIndex, provider) {
         if (index % labelStep !== 0 && index !== allDates.length - 1) return;
         const x = chartX(index, allDates.length, left, plotWidth);
         const label = svgElement('text', { x, y: height - 18, class: 'chart-axis-label', 'text-anchor': 'middle' });
-        label.textContent = formatShortDate(date);
+        label.textContent = formatBucketLabel(date);
         svg.append(label);
     });
 
-    dailyProvider.models.forEach((series, seriesIndex) => {
+    seriesProvider.models.forEach((series, seriesIndex) => {
         const isHighlighted = highlightMode && series.model === selectedModel;
         const isMuted = highlightMode && !isHighlighted;
         const color = CHART_COLORS[seriesIndex % CHART_COLORS.length];
@@ -836,7 +1066,7 @@ function renderProviderChart(providerIndex, provider) {
             svg.append(dot);
 
             if (chartPreferences.mode === 'per-point') {
-                const hit = svgElement('circle', { cx: x, cy: y, r: 12, class: 'chart-hit', tabindex: '0', role: 'button', 'aria-describedby': 'chartTooltip', 'aria-label': `${series.model}, ${formatLongDate(date)}, ${metric.label} ${formatMetric(value, metric.unit, metric.decimals)}` });
+                const hit = svgElement('circle', { cx: x, cy: y, r: 12, class: 'chart-hit', tabindex: '0', role: 'button', 'aria-describedby': 'chartTooltip', 'aria-label': `${series.model}, ${formatBucketLong(date)}, ${metric.label} ${formatMetric(value, metric.unit, metric.decimals)}` });
                 if (isMuted) hit.setAttribute('aria-disabled', 'true');
                 const show = event => showChartTooltip(event, series.model, date, value, metric, point, color);
                 hit.addEventListener('pointerenter', show);
@@ -855,11 +1085,11 @@ function renderProviderChart(providerIndex, provider) {
         const hitWidth = Math.max(colWidth * 0.8, 16);
         allDates.forEach((date, index) => {
             const x = chartX(index, allDates.length, left, plotWidth);
-            const rect = svgElement('rect', { x: Math.max(left, x - hitWidth / 2), y: top, width: Math.min(hitWidth, width - right - Math.max(left, x - hitWidth / 2)), height: plotHeight, class: 'chart-hit chart-day-hit', tabindex: '0', role: 'button', 'aria-describedby': 'chartTooltip', 'aria-label': `${formatLongDate(date)} all models` });
-            rect.addEventListener('pointerenter', event => showDayTooltip(event, date, dailyProvider.models, metric));
-            rect.addEventListener('pointermove', event => showDayTooltip(event, date, dailyProvider.models, metric));
-            rect.addEventListener('pointerdown', event => showDayTooltip(event, date, dailyProvider.models, metric));
-            rect.addEventListener('focus', event => showDayTooltip(event, date, dailyProvider.models, metric));
+            const rect = svgElement('rect', { x: Math.max(left, x - hitWidth / 2), y: top, width: Math.min(hitWidth, width - right - Math.max(left, x - hitWidth / 2)), height: plotHeight, class: 'chart-hit chart-day-hit', tabindex: '0', role: 'button', 'aria-describedby': 'chartTooltip', 'aria-label': `${formatBucketLong(date)} all models` });
+            rect.addEventListener('pointerenter', event => showDayTooltip(event, date, seriesProvider.models, metric));
+            rect.addEventListener('pointermove', event => showDayTooltip(event, date, seriesProvider.models, metric));
+            rect.addEventListener('pointerdown', event => showDayTooltip(event, date, seriesProvider.models, metric));
+            rect.addEventListener('focus', event => showDayTooltip(event, date, seriesProvider.models, metric));
             rect.addEventListener('pointerleave', event => { if (document.activeElement !== event.currentTarget) hideChartTooltip(); });
             rect.addEventListener('blur', hideChartTooltip);
             svg.append(rect);
@@ -868,7 +1098,7 @@ function renderProviderChart(providerIndex, provider) {
 
     const legend = document.createElement('div');
     legend.className = 'chart-legend';
-    dailyProvider.models.forEach((series, index) => {
+    seriesProvider.models.forEach((series, index) => {
         const color = CHART_COLORS[index % CHART_COLORS.length];
         const active = highlightMode && series.model === selectedModel;
         const muted = highlightMode && !active;
@@ -896,7 +1126,7 @@ function renderProviderChart(providerIndex, provider) {
         legend.append(reset);
         const hint = document.createElement('span');
         hint.className = 'muted-hint';
-        hint.textContent = 'Click a model again or use Show all to reset.';
+        hint.textContent = 'Click a model again to clear highlight.';
         legend.append(hint);
     }
     const scroll = document.createElement('div');
@@ -913,7 +1143,7 @@ function showChartTooltip(event, model, date, value, metric, point, color) {
     swatch.style.backgroundColor = color;
     heading.append(swatch, document.createTextNode(model));
     const dateLine = document.createElement('span');
-    dateLine.textContent = formatLongDate(date);
+    dateLine.textContent = formatBucketLong(date);
     const valueLine = document.createElement('b');
     valueLine.textContent = `${metric.label}: ${formatMetric(value, metric.unit, metric.decimals)}`;
     const probeLine = document.createElement('small');
@@ -926,7 +1156,7 @@ function showDayTooltip(event, date, seriesList, metric) {
     const tooltip = document.getElementById('chartTooltip');
     tooltip.replaceChildren();
     const heading = document.createElement('strong');
-    heading.textContent = formatLongDate(date);
+    heading.textContent = formatBucketLong(date);
     tooltip.append(heading);
     const list = document.createElement('ul');
     list.style.margin = '0';
@@ -1005,6 +1235,11 @@ async function exportCSV() {
     } catch (error) { showToast(error.message || 'Failed to export CSV', 'error'); }
 }
 
+function logPaginationMarkup(page, totalPages, position) {
+    if (totalPages <= 1) return '';
+    return `<nav class="pagination ${position === 'top' ? 'pagination-top' : ''}" aria-label="Request log pages ${position}"><button class="btn btn-secondary btn-sm" type="button" data-log-page="${page - 1}" ${page <= 1 ? 'disabled' : ''}>Previous</button><span>Page ${page} of ${totalPages}</span><button class="btn btn-secondary btn-sm" type="button" data-log-page="${page + 1}" ${page >= totalPages ? 'disabled' : ''}>Next</button></nav>`;
+}
+
 async function showProbeDetails(probeId, providerName, model, statusFilter = '', page = 1) {
     if (!probeId || isGuest) return;
     const generation = setModalContent('Request logs', `${providerName} / ${model}`, loadingMarkup('Loading request history'));
@@ -1017,8 +1252,9 @@ async function showProbeDetails(probeId, providerName, model, statusFilter = '',
         const totalPages = Math.max(1, finiteNumber(data && data.pages, 1));
         const body = document.getElementById('modalBody');
         body.innerHTML = `<div class="log-toolbar" role="group" aria-label="Filter request logs"><button class="btn btn-sm ${statusFilter ? 'btn-secondary' : 'btn-primary'}" type="button" data-log-filter="">All</button><button class="btn btn-sm ${statusFilter === 'failed' ? 'btn-danger-outline' : 'btn-secondary'}" type="button" data-log-filter="failed">Failed only</button><span class="muted">${finiteNumber(data && data.total, results.length)} records</span></div>
-            <div class="log-table-wrap"><table class="data-table log-table"><thead><tr><th scope="col">Time</th><th scope="col">Status</th><th scope="col">Latency</th><th scope="col">TTFT</th><th scope="col">Request ID</th><th scope="col">Error</th><th scope="col">Action</th></tr></thead><tbody>${results.length ? results.map((result, index) => `<tr><td data-label="Time">${escapeHtml(formatDateTime(result.created_at))}</td><td data-label="Status"><span class="status-pill ${result.status === 'success' ? 'success' : 'danger'}">${escapeHtml(statusLabel(result.status))}</span></td><td data-label="Latency" class="tabular">${formatMetric(numberValue(result.latency_ms), 'ms', 0)}</td><td data-label="TTFT" class="tabular">${formatMetric(numberValue(result.ttft_ms), 'ms', 0, true)}</td><td data-label="Request ID"><code class="wrap-code">${escapeHtml(result.request_id || '-')}</code></td><td data-label="Error" class="log-error">${escapeHtml(result.error_message || '-')}</td><td data-label="Action"><button class="btn btn-danger-outline btn-sm" type="button" data-delete-result="${index}">Delete</button></td></tr>`).join('') : '<tr><td colspan="7">No request logs match this filter.</td></tr>'}</tbody></table></div>
-            ${totalPages > 1 ? `<nav class="pagination" aria-label="Request log pages"><button class="btn btn-secondary btn-sm" type="button" data-log-page="${page - 1}" ${page <= 1 ? 'disabled' : ''}>Previous</button><span>Page ${page} of ${totalPages}</span><button class="btn btn-secondary btn-sm" type="button" data-log-page="${page + 1}" ${page >= totalPages ? 'disabled' : ''}>Next</button></nav>` : ''}`;
+            ${logPaginationMarkup(page, totalPages, 'top')}
+            <div class="log-table-wrap"><table class="data-table log-table"><thead><tr><th scope="col">Time</th><th scope="col">Status</th><th scope="col">Latency</th><th scope="col">TTFT</th><th scope="col">Request ID</th><th scope="col">Error</th><th scope="col">Action</th></tr></thead><tbody>${results.length ? results.map((result, index) => `<tr><td data-label="Time">${escapeHtml(formatDateTime(result.created_at))}</td><td data-label="Status"><span class="status-pill ${result.status === 'success' ? 'success' : 'danger'}">${escapeHtml(statusLabel(result.status))}</span></td><td data-label="Latency" class="tabular">${formatMetric(numberValue(result.latency_ms), 'ms', 0)}</td><td data-label="TTFT" class="tabular">${formatMetric(numberValue(result.ttft_ms), 'ms', 0, true)}</td><td data-label="Request ID"><code class="wrap-code">${escapeHtml(result.request_id || '-')}</code></td><td data-label="Error" class="log-error">${escapeHtml(displayErrorMessage(result.error_message) || '-')}</td><td data-label="Action"><button class="btn btn-danger-outline btn-sm" type="button" data-delete-result="${index}">Delete</button></td></tr>`).join('') : '<tr><td colspan="7">No request logs match this filter.</td></tr>'}</tbody></table></div>
+            ${logPaginationMarkup(page, totalPages, 'bottom')}`;
         body.querySelectorAll('[data-log-filter]').forEach(button => button.addEventListener('click', () => showProbeDetails(probeId, providerName, model, button.dataset.logFilter, 1)));
         body.querySelectorAll('[data-log-page]').forEach(button => button.addEventListener('click', () => showProbeDetails(probeId, providerName, model, statusFilter, Number(button.dataset.logPage))));
         body.querySelectorAll('[data-delete-result]').forEach(button => button.addEventListener('click', () => deleteResult(results[Number(button.dataset.deleteResult)], probeId, providerName, model, statusFilter, page)));
@@ -1198,11 +1434,13 @@ function formatAxis(value, metric) { return `${value.toFixed(metric.decimals > 0
 function niceMax(value) { if (value <= 0) return 1; const power = 10 ** Math.floor(Math.log10(value)); return Math.ceil(value / power * 2) / 2 * power; }
 function chartX(index, count, left, width) { return count <= 1 ? left + width / 2 : left + width * (index / (count - 1)); }
 function recentCalendarDates(days) {
+    const count = Math.max(0, Number(days) || 0);
+    if (!count) return [];
     const dates = [];
     const current = new Date();
     current.setHours(0, 0, 0, 0);
-    current.setDate(current.getDate() - days + 1);
-    for (let index = 0; index < days; index += 1) {
+    current.setDate(current.getDate() - count + 1);
+    for (let index = 0; index < count; index += 1) {
         const year = current.getFullYear();
         const month = String(current.getMonth() + 1).padStart(2, '0');
         const day = String(current.getDate()).padStart(2, '0');

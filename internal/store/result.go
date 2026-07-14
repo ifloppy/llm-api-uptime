@@ -411,6 +411,113 @@ func (s *Store) GetDailyStats(days int) ([]model.ProviderDailyStats, error) {
 	return stats, nil
 }
 
+func (s *Store) GetHourlyStats(hours int) ([]model.ProviderHourlyStats, error) {
+	if hours <= 0 {
+		hours = 24
+	}
+	since := time.Now().Add(-time.Duration(hours) * time.Hour)
+	sinceStr := since.Format("2006-01-02 15:04:05")
+
+	rows, err := s.db.Query(`
+		SELECT
+			pr.name,
+			p.id,
+			p.model,
+			r.created_at,
+			r.status
+		FROM probes p
+		JOIN providers pr ON pr.id = p.provider_id
+		LEFT JOIN results r ON r.probe_id = p.id AND r.created_at >= ?
+		WHERE p.enabled = 1 AND pr.enabled = 1
+		ORDER BY pr.name COLLATE NOCASE, pr.id, p.model COLLATE NOCASE, p.id, r.created_at
+	`, sinceStr)
+	if err != nil {
+		return nil, fmt.Errorf("get hourly stats: %w", err)
+	}
+	defer rows.Close()
+
+	stats := make([]model.ProviderHourlyStats, 0)
+	var currentProvider string
+	var currentProbeID int64
+	type hourAgg struct {
+		total  int
+		failed int
+	}
+	hourMaps := make(map[int64]map[string]*hourAgg)
+
+	for rows.Next() {
+		var providerName, modelName string
+		var probeID int64
+		var createdAtStr, status sql.NullString
+		if err := rows.Scan(&providerName, &probeID, &modelName, &createdAtStr, &status); err != nil {
+			return nil, fmt.Errorf("scan hourly stats: %w", err)
+		}
+
+		if len(stats) == 0 || providerName != currentProvider {
+			stats = append(stats, model.ProviderHourlyStats{
+				ProviderName: providerName,
+				Models:       make([]model.ModelHourlyStats, 0),
+			})
+			currentProvider = providerName
+			currentProbeID = 0
+		}
+		provider := &stats[len(stats)-1]
+		if len(provider.Models) == 0 || probeID != currentProbeID {
+			provider.Models = append(provider.Models, model.ModelHourlyStats{
+				ProbeID: probeID,
+				Model:   modelName,
+				Hourly:  make([]model.HourlySummary, 0),
+			})
+			currentProbeID = probeID
+			if hourMaps[probeID] == nil {
+				hourMaps[probeID] = make(map[string]*hourAgg)
+			}
+		}
+		if !createdAtStr.Valid || !status.Valid {
+			continue
+		}
+		createdAt, err := parseTimeString(createdAtStr.String)
+		if err != nil || createdAt.Before(since) {
+			continue
+		}
+		hourKey := createdAt.Format("2006-01-02 15:00:00")
+		agg := hourMaps[probeID][hourKey]
+		if agg == nil {
+			agg = &hourAgg{}
+			hourMaps[probeID][hourKey] = agg
+		}
+		agg.total++
+		if status.String != "success" {
+			agg.failed++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate hourly stats: %w", err)
+	}
+
+	for i := range stats {
+		for j := range stats[i].Models {
+			probeID := stats[i].Models[j].ProbeID
+			keys := make([]string, 0, len(hourMaps[probeID]))
+			for key := range hourMaps[probeID] {
+				keys = append(keys, key)
+			}
+			sort.Strings(keys)
+			hourly := make([]model.HourlySummary, 0, len(keys))
+			for _, key := range keys {
+				agg := hourMaps[probeID][key]
+				hourly = append(hourly, model.HourlySummary{
+					Hour:   key,
+					Total:  agg.total,
+					Failed: agg.failed,
+				})
+			}
+			stats[i].Models[j].Hourly = hourly
+		}
+	}
+	return stats, nil
+}
+
 func (s *Store) GetStats(query model.StatsQuery) ([]model.ProviderStats, error) {
 	now := time.Now()
 	var since time.Time

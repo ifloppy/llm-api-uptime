@@ -1117,3 +1117,51 @@ func TestGetDailyStatsGroupedAndIncludesEmptyModels(t *testing.T) {
 		t.Errorf("today summary did not preserve metrics: %+v", daily[0])
 	}
 }
+
+func TestGetHourlyStatsGroupedAndIncludesEmptyModels(t *testing.T) {
+	store := setupTestDB(t)
+	defer store.Close()
+
+	zulu := createTestProvider(t, store, "Zulu")
+	alpha := createTestProvider(t, store, "Alpha")
+	emptyProbe := createTestProbe(t, store, alpha.ID, "a-empty")
+	dataProbe := createTestProbe(t, store, alpha.ID, "b-data")
+	createTestProbe(t, store, zulu.ID, "z-empty")
+
+	now := time.Now()
+	for _, result := range []*model.Result{
+		{ProbeID: dataProbe.ID, Status: model.StatusSuccess, LatencyMs: 100, CreatedAt: now},
+		{ProbeID: dataProbe.ID, Status: model.StatusError, LatencyMs: 200, CreatedAt: now.Add(-30 * time.Minute)},
+		{ProbeID: dataProbe.ID, Status: model.StatusSuccess, LatencyMs: 150, CreatedAt: now.Add(-2 * time.Hour)},
+	} {
+		if err := store.SaveResult(result); err != nil {
+			t.Fatalf("SaveResult: %v", err)
+		}
+	}
+
+	stats, err := store.GetHourlyStats(24)
+	if err != nil {
+		t.Fatalf("GetHourlyStats: %v", err)
+	}
+	if len(stats) != 2 || stats[0].ProviderName != "Alpha" || stats[1].ProviderName != "Zulu" {
+		t.Fatalf("unexpected provider grouping/order: %+v", stats)
+	}
+	if len(stats[0].Models) != 2 || stats[0].Models[0].ProbeID != emptyProbe.ID {
+		t.Fatalf("unexpected model grouping/order: %+v", stats[0].Models)
+	}
+	if stats[0].Models[0].Hourly == nil || len(stats[0].Models[0].Hourly) != 0 {
+		t.Errorf("empty model hourly series should be []: %#v", stats[0].Models[0].Hourly)
+	}
+	if len(stats[0].Models[1].Hourly) == 0 {
+		t.Fatalf("expected hourly buckets for data model, got %+v", stats[0].Models[1].Hourly)
+	}
+	total := 0
+	failed := 0
+	for _, hour := range stats[0].Models[1].Hourly {
+		total += hour.Total
+		failed += hour.Failed
+	}
+	if total != 3 || failed != 1 {
+		t.Errorf("hourly totals = %d failed=%d, want 3 and 1", total, failed)
+	}
+}

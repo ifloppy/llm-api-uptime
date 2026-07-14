@@ -65,10 +65,12 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/probes/{id}", h.handleDeleteProbe)
 	mux.HandleFunc("GET /api/stats", h.handleStats)
 	mux.HandleFunc("GET /api/stats/daily", h.handleDailyStats)
+	mux.HandleFunc("GET /api/stats/hourly", h.handleHourlyStats)
 	mux.HandleFunc("DELETE /api/stats", h.handleClearStats)
 	mux.HandleFunc("GET /api/probes/{id}/results", h.handleGetProbeResults)
 	mux.HandleFunc("GET /api/probes/{id}/hourly", h.handleGetHourlySummary)
 	mux.HandleFunc("GET /api/probes/{id}/daily", h.handleGetDailySummary)
+	mux.HandleFunc("GET /api/probes/{id}/downtime", h.handleGetDowntimePeriods)
 	mux.HandleFunc("GET /api/export/csv", h.handleExportCSV)
 	mux.HandleFunc("DELETE /api/results/{id}", h.handleDeleteResult)
 	mux.HandleFunc("POST /api/probe/trigger", h.handleTriggerProbe)
@@ -469,6 +471,25 @@ func (h *Handler) handleDailyStats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, stats)
 }
 
+func (h *Handler) handleHourlyStats(w http.ResponseWriter, r *http.Request) {
+	hours := 24
+	if hoursStr := r.URL.Query().Get("hours"); hoursStr != "" {
+		if n, err := strconv.Atoi(hoursStr); err == nil && n > 0 {
+			hours = n
+		}
+	}
+	if hours > 168 {
+		hours = 168
+	}
+
+	stats, err := h.store.GetHourlyStats(hours)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, stats)
+}
+
 func (h *Handler) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	if isGuest(r) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
@@ -639,6 +660,36 @@ func (h *Handler) handleGetDailySummary(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeJSON(w, http.StatusOK, summary)
+}
+
+func (h *Handler) handleGetDowntimePeriods(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid id"})
+		return
+	}
+
+	hours := 24
+	if hoursStr := r.URL.Query().Get("hours"); hoursStr != "" {
+		if n, err := strconv.Atoi(hoursStr); err == nil && n > 0 {
+			hours = n
+		}
+	}
+	if hours > 720 {
+		hours = 720
+	}
+
+	since := time.Now().Add(-time.Duration(hours) * time.Hour)
+	periods, err := h.store.GetDowntimePeriods(id, since)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if periods == nil {
+		periods = make([]model.DowntimePeriod, 0)
+	}
+	writeJSON(w, http.StatusOK, periods)
 }
 
 func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
