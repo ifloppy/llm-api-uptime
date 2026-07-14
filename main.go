@@ -68,6 +68,7 @@ func run(args []string, output io.Writer) int {
 	updater := update.NewChecker(
 		update.WithInterval(cfg.UpdateCheckInterval),
 		update.WithAutoStage(cfg.UpdateAutoStage),
+		update.WithHTTPProxy(cfg.UpdateHTTPProxy),
 	)
 	if cfg.UpdateCheckEnabled {
 		updater.Start(updateContext)

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -14,12 +15,13 @@ type Config struct {
 	DataRetention       time.Duration
 	WebEnabled          bool
 	WebPort             int
-	WebPublic           bool
+	WebPublic            bool
 	WebPassword         string
 	WebGuestEnabled     bool
 	UpdateCheckEnabled  bool
 	UpdateCheckInterval time.Duration
 	UpdateAutoStage     bool
+	UpdateHTTPProxy     string
 	LogLevel            string
 }
 
@@ -40,6 +42,7 @@ func Load() *Config {
 		UpdateCheckEnabled:  true,
 		UpdateCheckInterval: 24 * time.Hour,
 		UpdateAutoStage:     true,
+		UpdateHTTPProxy:     "",
 		LogLevel:            "info",
 	}
 
@@ -109,6 +112,10 @@ func Load() *Config {
 		if enabled, err := strconv.ParseBool(v); err == nil {
 			cfg.UpdateAutoStage = enabled
 		}
+	}
+
+	if v := os.Getenv("UPDATE_HTTP_PROXY"); v != "" {
+		cfg.UpdateHTTPProxy = strings.TrimSpace(v)
 	}
 
 	if v := os.Getenv("LOG_LEVEL"); v != "" {

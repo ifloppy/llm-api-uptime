@@ -96,6 +96,11 @@ cp .env.example .env
 | `UPDATE_CHECK_ENABLED` | `true` | 检查 GitHub Releases 中的新版本 |
 | `UPDATE_CHECK_INTERVAL` | `24h` | 自动检查更新的间隔 |
 | `UPDATE_AUTO_STAGE` | `true` | 下载并暂存受支持的更新，重启后启用 |
+| `UPDATE_HTTP_PROXY` | _(空)_ | 仅作用于 GitHub Release 请求的可选 HTTP 代理；留空时继承 Shell 中的 `HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY`。 |
+
+## 环境变量与代理
+
+Shell（或 systemd 单元、进程管理器）中设置的 `HTTP_PROXY`、`HTTPS_PROXY` 与 `NO_PROXY` 会被 `llm-api-uptime` 及其在自动重启时拉起的新进程一并继承。`UPDATE_HTTP_PROXY` 仅覆盖更新器访问 GitHub Releases 时的 HTTP 客户端，不影响其它网络请求。
 
 ## ⌨️ TUI 操作
 
@@ -139,7 +144,7 @@ cp .env.example .env
 | **仪表盘** | 按服务商/模型显示运行状态、引擎与访问状态、上次探测时间、服务商/模型数量、当前可用率与性能，并支持手动探测 |
 | **服务商** | 增删改查 API 服务商（含 MaxTokens 配置） |
 | **模型** | 添加/删除探测目标，从 API 一键获取模型列表 |
-| **统计** | 按 24 小时/7 天/30 天筛选汇总数据，查看最近 30 天图表及可用率、TPS、TTFT 明细，导出 CSV 或确认后清空统计 |
+| **统计** | 按 24 小时/7 天/30 天筛选汇总数据；图表默认最近 7 天，可在工具栏切换为 30 天，并支持按模型高亮、按点 / 按天切换悬浮显示形式；查看可用率、延迟、TTFT 明细，导出 CSV 或确认后清空统计 |
 
 仪表盘的 **Copy current status** 操作会把当前服务状态摘要复制到剪贴板，便于分享。清空统计、删除历史等破坏性操作需要确认，并且在只读访客模式下隐藏。
 

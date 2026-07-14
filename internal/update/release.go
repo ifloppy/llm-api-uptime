@@ -115,13 +115,29 @@ func (c *Checker) fetchLatest(ctx context.Context) (Release, error) {
 	return release, nil
 }
 
-func defaultHTTPClient() *http.Client {
+func defaultHTTPClient(proxyURL string) *http.Client {
+	transport := &http.Transport{
+		Proxy: httpProxyFunc(proxyURL),
+	}
 	return &http.Client{
-		Timeout: assetTimeout,
+		Timeout:   assetTimeout,
+		Transport: transport,
 		CheckRedirect: func(request *http.Request, _ []*http.Request) error {
 			return validateTrustedURL(request.URL.String())
 		},
 	}
+}
+
+func httpProxyFunc(rawURL string) func(*http.Request) (*url.URL, error) {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return nil
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return nil
+	}
+	return http.ProxyURL(parsed)
 }
 
 func validateTrustedURL(address string) error {

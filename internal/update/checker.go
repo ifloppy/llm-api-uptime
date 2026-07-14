@@ -87,6 +87,7 @@ type Checker struct {
 	executablePath string
 	interval       time.Duration
 	autoStage      bool
+	httpProxy      string
 	stage          func(context.Context) Status
 
 	operationMu sync.Mutex
@@ -112,19 +113,30 @@ func WithAutoStage(enabled bool) Option {
 	}
 }
 
+// WithHTTPProxy overrides the HTTP transport used for GitHub release requests.
+// The proxy is intentionally narrow: it only affects release metadata and asset
+// downloads so the surrounding probe and web code paths are not reconfigured.
+// A blank value clears any previously applied proxy.
+func WithHTTPProxy(rawURL string) Option {
+	return func(checker *Checker) {
+		checker.httpProxy = strings.TrimSpace(rawURL)
+	}
+}
+
 // NewChecker returns a checker configured for ifloppy/llm-api-uptime.
 func NewChecker(options ...Option) *Checker {
 	current := buildinfo.Current().Version
 	checker := &Checker{
-		client:   defaultHTTPClient(),
-		baseURL:  githubBaseURL,
+		client:   defaultHTTPClient(""),
+		baseURL: githubBaseURL,
 		current:  current,
 		interval: 24 * time.Hour,
-		status:   Status{State: StateChecking, Current: current},
+		status:  Status{State: StateChecking, Current: current},
 	}
 	for _, option := range options {
 		option(checker)
 	}
+	checker.client = defaultHTTPClient(checker.httpProxy)
 	checker.stage = checker.Stage
 	return checker
 }

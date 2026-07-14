@@ -81,6 +81,11 @@ cp .env.example .env
 | `UPDATE_CHECK_ENABLED` | `true` | Check GitHub Releases for newer versions |
 | `UPDATE_CHECK_INTERVAL` | `24h` | Interval between automatic update checks |
 | `UPDATE_AUTO_STAGE` | `true` | Download and stage a supported update for activation on restart |
+| `UPDATE_HTTP_PROXY` | _(empty)_ | Optional HTTP proxy for GitHub release requests only. Inherits the shell environment (`HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY`) when empty. |
+
+## Environment Variables and Proxies
+
+`HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` set in the shell (or via a systemd unit/supervisor) are inherited by `llm-api-uptime` and any new binary it spawns during a self-update restart. Use `UPDATE_HTTP_PROXY` to override only the updater's GitHub release client while leaving the rest of the process on the inherited environment.
 
 ## TUI Controls
 
@@ -124,7 +129,7 @@ When enabled, access at `http://localhost:8080` (or your configured port).
 - **Dashboard**: Provider/model operational status, engine and access state, last probe time, provider/model counts, current availability and performance, and manual probe trigger
 - **Providers**: CRUD operations for API providers (with MaxTokens config)
 - **Models**: Add/delete probe targets, fetch from API
-- **Statistics**: Filter summary data by 24 hours/7 days/30 days; inspect the latest 30-day charts and detailed uptime, TPS, and TTFT data; export CSV; or clear statistics with confirmation
+- **Statistics**: Filter summary data by 24 hours / 7 days / 30 days; inspect default 7-day or switched 30-day trend charts (chart range, hover mode and single-model highlight live in the toolbar); inspect detailed uptime and TTFT data; export CSV; or clear statistics with confirmation
 
 The dashboard's **Copy current status** action copies the current service summary to the clipboard for sharing. Destructive statistics and history actions require confirmation and are hidden in read-only guest mode.
 

@@ -111,7 +111,7 @@
 
             <section id="stats" class="page" aria-labelledby="statsTitle" hidden>
                 <header class="page-header stats-header">
-                    <div><p class="eyebrow">Historical analysis</p><h1 id="statsTitle">Statistics</h1><p class="page-description">Summary range controls the table. Charts always show the latest 30 days.</p></div>
+                    <div><p class="eyebrow">Historical analysis</p><h1 id="statsTitle">Statistics</h1><p class="page-description">Summary range controls the table. Charts default to 7 days and can be switched to 30 days.</p></div>
                     <div class="controls">
                         <label class="select-label" for="timeRange"><span>Summary range</span><select id="timeRange"><option value="24">24 hours</option><option value="168">7 days</option><option value="720">30 days</option></select></label>
                         <button id="statsCopyStatusBtn" class="btn btn-secondary" type="button">Copy current status</button>
@@ -120,6 +120,19 @@
                         <button id="clearStatsBtn" class="btn btn-danger-outline" type="button">Clear data</button>
                     </div>
                 </header>
+                <div id="chartControlsBar" class="chart-controls-bar" aria-label="Chart display preferences">
+                    <div class="chart-controls-group" role="group" aria-label="Chart range">
+                        <span class="chart-controls-label">Chart range</span>
+                        <button id="chartRange7" class="seg-btn" type="button" aria-pressed="true">7 days</button>
+                        <button id="chartRange30" class="seg-btn" type="button" aria-pressed="false">30 days</button>
+                    </div>
+                    <div class="chart-controls-group" role="group" aria-label="Hover mode">
+                        <span class="chart-controls-label">Hover detail</span>
+                        <button id="chartModePerPoint" class="seg-btn" type="button" aria-pressed="true">Per point</button>
+                        <button id="chartModePerDay" class="seg-btn" type="button" aria-pressed="false">Per day</button>
+                    </div>
+                    <p class="chart-controls-hint" id="chartControlsHint">Hover any data point for details.</p>
+                </div>
                 <div id="statsProviders" class="provider-stack" aria-live="polite">
                     <div class="loading-state"><span class="spinner" aria-hidden="true"></span>Loading statistics</div>
                 </div>
