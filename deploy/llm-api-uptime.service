@@ -1,0 +1,25 @@
+[Unit]
+Description=LLM API Uptime Monitor
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=llm-api-uptime
+Group=llm-api-uptime
+WorkingDirectory=/opt/llm-api-uptime
+EnvironmentFile=/opt/llm-api-uptime/.env
+ExecStart=/opt/llm-api-uptime/llm-api-uptime --server
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+UMask=0027
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/opt/llm-api-uptime
+
+[Install]
+WantedBy=multi-user.target

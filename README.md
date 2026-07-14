@@ -26,6 +26,48 @@ A lightweight tool for monitoring the uptime and stability of LLM API providers 
 
 ## Installation
 
+### Linux one-line install (systemd)
+
+The installer supports Linux `amd64` and `arm64`, downloads the latest release, verifies SHA-256, installs to `/opt/llm-api-uptime`, creates a dedicated system user, generates a Web password, and enables the systemd service:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ifloppy/llm-api-uptime/master/scripts/install.sh | sudo sh
+```
+
+The Web UI binds to `0.0.0.0:8080` by default. The generated password is printed once and stored in `/opt/llm-api-uptime/.env`. To provide your own settings:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ifloppy/llm-api-uptime/master/scripts/install.sh \
+  | sudo WEB_PORT=8080 WEB_PASSWORD='replace-with-a-strong-password' sh
+```
+
+Running the installer again upgrades the binary while preserving `.env` and `data/`. Manage the service with:
+
+```bash
+sudo systemctl status llm-api-uptime
+sudo systemctl restart llm-api-uptime
+sudo journalctl -u llm-api-uptime -f
+```
+
+Interactive uninstall (the script asks whether to preserve or purge data):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ifloppy/llm-api-uptime/master/scripts/uninstall.sh | sudo sh
+```
+
+The installed layout is:
+
+```text
+/opt/llm-api-uptime/
+  llm-api-uptime
+  .env
+  data/uptime.db
+```
+
+Because the default bind is public, restrict port `8080` with a firewall or reverse proxy and keep `WEB_PASSWORD` enabled.
+
+### Manual binary install
+
 Download the binary for your operating system and architecture from [GitHub Releases](https://github.com/ifloppy/llm-api-uptime/releases), verify it against `checksums.txt`, and make it executable on Linux or macOS:
 
 ```bash
@@ -53,9 +95,36 @@ The application starts both TUI and Web server (if enabled) simultaneously:
 # Start with TUI + Web server (WEB_ENABLED=true in .env)
 ./llm-api-uptime
 
+# Run without TUI for systemd, Docker, or another supervisor
+WEB_ENABLED=true ./llm-api-uptime --server
+
 # Print version, commit, and build date
 ./llm-api-uptime --version
 ```
+
+`--server` requires `WEB_ENABLED=true`; Web startup errors are fatal in this mode so supervisors do not report a broken instance as healthy.
+
+## Docker
+
+Build and run the non-root image with persistent SQLite storage:
+
+```bash
+docker build \
+  --build-arg VERSION="$(git describe --tags --always)" \
+  --build-arg COMMIT="$(git rev-parse --short=12 HEAD)" \
+  --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  -t llm-api-uptime .
+
+docker run -d \
+  --name llm-api-uptime \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  -v llm-api-uptime-data:/opt/llm-api-uptime/data \
+  -e WEB_PASSWORD='replace-with-a-strong-password' \
+  llm-api-uptime
+```
+
+The image runs `--server` as a non-root user. `UPDATE_AUTO_STAGE=false` is the image default because containers should be upgraded by replacing the image rather than modifying the executable in a running container. A standalone unit template is available at [`deploy/llm-api-uptime.service`](deploy/llm-api-uptime.service).
 
 ## Configuration
 
@@ -164,7 +233,12 @@ If `WEB_PASSWORD` is set:
 | `POST` | `/api/probes` | Add probe |
 | `DELETE` | `/api/probes/{id}` | Delete probe |
 | `GET` | `/api/stats` | Get statistics |
+| `GET` | `/api/stats/daily` | Get grouped daily statistics |
+| `GET` | `/api/stats/hourly` | Get grouped hourly statistics |
 | `DELETE` | `/api/stats` | Clear all statistics |
+| `GET` | `/api/probes/{id}/results` | Get paginated probe history |
+| `GET` | `/api/probes/{id}/downtime` | Get downtime periods |
+| `DELETE` | `/api/results/{id}` | Delete one result |
 | `GET` | `/api/export/csv` | Export CSV report |
 | `POST` | `/api/probe/trigger` | Trigger manual probe |
 | `POST` | `/api/login` | Authenticate |

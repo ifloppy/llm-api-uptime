@@ -1,0 +1,14 @@
+.git
+.github
+.codegraph
+.opencode
+.playwright-mcp
+.review-binaries
+data
+dist
+.env
+coverage.out
+*.db
+*.db-*
+*.exe
+llm-api-uptime

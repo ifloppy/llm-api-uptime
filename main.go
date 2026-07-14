@@ -34,15 +34,24 @@ func printVersion(args []string, output io.Writer) bool {
 	return true
 }
 
+func serverMode(args []string) bool {
+	return len(args) == 1 && args[0] == "--server"
+}
+
 func run(args []string, output io.Writer) int {
 	if printVersion(args[1:], output) {
 		return 0
 	}
+	headless := serverMode(args[1:])
 	executable, executableErr := os.Executable()
 
 	godotenv.Load()
 
 	cfg := config.Load()
+	if headless && !cfg.WebEnabled {
+		fmt.Fprintln(output, "--server requires WEB_ENABLED=true")
+		return 2
+	}
 
 	level := slog.LevelInfo
 	switch cfg.LogLevel {
@@ -101,12 +110,27 @@ func run(args []string, output io.Writer) int {
 		webServer = web.NewServer(db, engine, cfg, logger, web.WithUpdater(updater, requestRestart))
 		if err := webServer.Start(); err != nil {
 			logger.Error("failed to start web server", "error", err)
+			if headless {
+				stopUpdates()
+				if cfg.UpdateCheckEnabled {
+					updater.Wait()
+				}
+				engine.Stop()
+				_ = db.Close()
+				return 1
+			}
 		}
 	}
 
-	app := tui.NewApp(db, engine, cfg, logger, webServer)
-	tuiDone := make(chan error, 1)
-	go func() { tuiDone <- app.Run() }()
+	var app *tui.App
+	var tuiDone chan error
+	if !headless {
+		app = tui.NewApp(db, engine, cfg, logger, webServer)
+		tuiDone = make(chan error, 1)
+		go func() { tuiDone <- app.Run() }()
+	} else {
+		logger.Info("headless server mode started")
+	}
 
 	restartRequested := false
 	var tuiErr error
@@ -116,15 +140,19 @@ func run(args []string, output io.Writer) int {
 	case signal := <-sigCh:
 		close(shutdownStarted)
 		logger.Info("shutdown signal received", "signal", signal)
-		app.Stop()
-		tuiErr = <-tuiDone
+		if app != nil {
+			app.Stop()
+			tuiErr = <-tuiDone
+		}
 	case request := <-restartCh:
 		restartRequested = true
 		request.accepted <- nil
 		close(shutdownStarted)
 		logger.Info("restart requested")
-		app.Stop()
-		tuiErr = <-tuiDone
+		if app != nil {
+			app.Stop()
+			tuiErr = <-tuiDone
+		}
 	}
 
 	stopUpdates()

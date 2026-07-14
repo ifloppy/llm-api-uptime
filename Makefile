@@ -1,4 +1,4 @@
-.PHONY: build build-linux clean run-tui run-web test fmt lint
+.PHONY: build build-linux clean run-tui run-web run-server test fmt lint
 
 BINARY := llm-api-uptime
 HOST_EXT := $(if $(filter windows,$(shell go env GOOS)),.exe)
@@ -23,6 +23,9 @@ run-tui: build
 
 run-web: build
 	WEB_ENABLED=true ./$(OUTPUT)
+
+run-server: build
+	WEB_ENABLED=true ./$(OUTPUT) --server
 
 test:
 	go test ./...

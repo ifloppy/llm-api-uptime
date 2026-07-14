@@ -41,6 +41,48 @@ LLM API 提供商可用性监控工具。支持 OpenAI Compatible 和 Anthropic 
 
 ## 📦 安装
 
+### Linux 一键安装（systemd）
+
+安装脚本支持 Linux `amd64` 和 `arm64`：下载最新 Release、校验 SHA-256、安装到 `/opt/llm-api-uptime`、创建专用系统用户、生成 Web 密码，并自动启用 systemd 服务：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ifloppy/llm-api-uptime/master/scripts/install.sh | sudo sh
+```
+
+Web UI 默认监听 `0.0.0.0:8080`。随机密码会在安装完成时打印一次，并写入 `/opt/llm-api-uptime/.env`。也可以传入自定义配置：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ifloppy/llm-api-uptime/master/scripts/install.sh \
+  | sudo WEB_PORT=8080 WEB_PASSWORD='replace-with-a-strong-password' sh
+```
+
+重复运行安装脚本会升级二进制，同时保留 `.env` 和 `data/`。常用管理命令：
+
+```bash
+sudo systemctl status llm-api-uptime
+sudo systemctl restart llm-api-uptime
+sudo journalctl -u llm-api-uptime -f
+```
+
+交互式卸载（脚本会询问保留还是彻底删除数据）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ifloppy/llm-api-uptime/master/scripts/uninstall.sh | sudo sh
+```
+
+安装目录结构：
+
+```text
+/opt/llm-api-uptime/
+  llm-api-uptime
+  .env
+  data/uptime.db
+```
+
+由于默认监听公网地址，请使用防火墙或反向代理限制 `8080` 端口，并保持 `WEB_PASSWORD` 启用。
+
+### 手动安装二进制
+
 从 [GitHub Releases](https://github.com/ifloppy/llm-api-uptime/releases) 下载与操作系统及架构匹配的二进制文件，使用 `checksums.txt` 校验；Linux 或 macOS 还需添加执行权限：
 
 ```bash
@@ -68,9 +110,36 @@ make build
 # TUI + Web（.env 中设置 WEB_ENABLED=true）
 ./llm-api-uptime
 
+# systemd、Docker 或其他进程管理器下不启动 TUI
+WEB_ENABLED=true ./llm-api-uptime --server
+
 # 显示版本、提交和构建时间
 ./llm-api-uptime --version
 ```
+
+`--server` 要求 `WEB_ENABLED=true`；此模式下 Web 监听失败会直接退出，避免 systemd 将失效实例误判为正常运行。
+
+## Docker
+
+构建并以非 root 用户运行镜像，SQLite 数据使用持久卷保存：
+
+```bash
+docker build \
+  --build-arg VERSION="$(git describe --tags --always)" \
+  --build-arg COMMIT="$(git rev-parse --short=12 HEAD)" \
+  --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  -t llm-api-uptime .
+
+docker run -d \
+  --name llm-api-uptime \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  -v llm-api-uptime-data:/opt/llm-api-uptime/data \
+  -e WEB_PASSWORD='replace-with-a-strong-password' \
+  llm-api-uptime
+```
+
+镜像默认以非 root 用户运行 `--server`。容器默认设置 `UPDATE_AUTO_STAGE=false`，升级应通过替换镜像完成，而不是在运行中的容器内改写可执行文件。独立 systemd 模板位于 [`deploy/llm-api-uptime.service`](deploy/llm-api-uptime.service)。
 
 ## ⚙️ 配置
 
@@ -179,8 +248,11 @@ SHA-256 可以发现意外损坏，以及发布文件与所下载校验清单之
 | `POST` | `/api/probes` | 添加探测目标 |
 | `DELETE` | `/api/probes/{id}` | 删除探测目标 |
 | `GET` | `/api/stats` | 获取统计 |
+| `GET` | `/api/stats/daily` | 获取按天分组统计 |
+| `GET` | `/api/stats/hourly` | 获取按小时分组统计 |
 | `DELETE` | `/api/stats` | 清空统计 |
 | `GET` | `/api/probes/{id}/results` | 探测历史明细 |
+| `GET` | `/api/probes/{id}/downtime` | 获取故障时间段 |
 | `DELETE` | `/api/results/{id}` | 删除单条记录 |
 | `GET` | `/api/export/csv` | 导出 CSV 报告 |
 | `POST` | `/api/probe/trigger` | 手动触发探测 |
