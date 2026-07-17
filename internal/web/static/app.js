@@ -237,6 +237,7 @@ async function loadDashboard() {
         const status = await apiCall('/status');
         applyAccessState(status || {});
         dashboardStats = asArray(await apiCall('/stats?hours=24'));
+        timelineCache.clear();
         renderDashboard(dashboardStats);
         loadUpdateStatus();
     } catch (error) {
@@ -298,6 +299,7 @@ function renderDashboard(stats) {
                         ${!isGuest && Number(model.probe_id) ? `<button class="icon-text-btn" type="button" data-action="logs" data-provider-index="${providerIndex}" data-model-index="${modelIndex}">${logsIcon()}<span>Request logs</span></button>` : ''}
                     </div>
                     ${renderErrorPanel(model, error, unavailable, providerIndex, modelIndex)}
+                    ${Number(model.probe_id) ? `<div class="timeline-panel dashboard-timeline" id="dashboard-timeline-${providerIndex}-${modelIndex}">${loadingMarkup('Loading uptime timeline')}</div>` : ''}
                 </article>`;
         }).join('');
 
@@ -309,6 +311,8 @@ function renderDashboard(stats) {
             <div class="model-list">${rows}</div>
         </section>`;
     }).join('');
+
+    loadDashboardTimelines(providers);
 }
 
 function renderErrorPanel(model, error, unavailable, providerIndex, modelIndex) {
@@ -347,9 +351,13 @@ function toggleErrorDetails(targetId, button) {
 function handleDashboardAction(event) {
     const button = event.target.closest('button[data-action]');
     if (!button) return;
+    const action = button.dataset.action;
+    if (action === 'timeline-logs') {
+        showDowntimeLogs(Number(button.dataset.probeId), button.dataset.providerName, button.dataset.modelName, Number(button.dataset.start), Number(button.dataset.end));
+        return;
+    }
     const provider = normalizeProviders(dashboardStats)[Number(button.dataset.providerIndex)];
     const model = provider && provider.models[Number(button.dataset.modelIndex)];
-    const action = button.dataset.action;
     if (action === 'copy-provider' && provider) copyText(providerReport(provider), `${provider.provider_name} report copied`);
     if (action === 'copy-model' && model) copyText(String(model.model || ''), 'Model name copied');
     if (action === 'copy-error' && provider && model) copyText(modelReport(provider.provider_name, model), 'Current error details copied');
@@ -681,12 +689,16 @@ function handleStatsAction(event) {
     const legend = event.target.closest('button[data-action="legend"]');
     const target = button || legend;
     if (!target) return;
+    const action = target.dataset.action;
+    if (action === 'timeline-logs') {
+        showDowntimeLogs(Number(target.dataset.probeId), target.dataset.providerName, target.dataset.modelName, Number(target.dataset.start), Number(target.dataset.end));
+        return;
+    }
     const providerIndex = Number(target.dataset.providerIndex);
     const modelIndexRaw = target.dataset.modelIndex;
     const modelIndex = modelIndexRaw === undefined ? -1 : Number(modelIndexRaw);
     const provider = normalizeProviders(statsRows)[providerIndex];
     if (!provider) return;
-    const action = target.dataset.action;
     if (action === 'copy-provider') copyText(providerReport(provider), `${provider.provider_name} report copied`);
     if (action === 'metric') {
         chartMetrics.set(provider.provider_name, target.dataset.metric);
@@ -892,6 +904,44 @@ function toggleModelTimeline(providerIndex, modelIndex, model) {
     renderStats();
 }
 
+async function loadDashboardTimelines(providers) {
+    const hours = 24;
+    providers.forEach((provider, providerIndex) => {
+        provider.models.forEach((model, modelIndex) => {
+            loadDashboardTimeline(providerIndex, modelIndex, provider, model, hours);
+        });
+    });
+}
+
+async function loadDashboardTimeline(providerIndex, modelIndex, provider, model, hours = 24) {
+    const panel = document.getElementById(`dashboard-timeline-${providerIndex}-${modelIndex}`);
+    if (!panel) return;
+    const probeId = Number(model.probe_id);
+    if (!probeId) {
+        panel.innerHTML = emptyMarkup('No timeline', 'This model has no probe id.');
+        return;
+    }
+    const cacheKey = `${probeId}:${hours}`;
+    const meta = { probeId, providerName: provider.provider_name, modelName: model.model };
+    if (timelineCache.has(cacheKey)) {
+        panel.innerHTML = renderTimelineMarkup(timelineCache.get(cacheKey), hours, meta);
+        return;
+    }
+    panel.innerHTML = loadingMarkup('Loading uptime timeline');
+    try {
+        const periods = asArray(await apiCall(`/probes/${probeId}/downtime?hours=${hours}`)).map(period => ({
+            start: new Date(period.start),
+            end: new Date(period.end)
+        })).filter(period => !Number.isNaN(period.start.getTime()) && !Number.isNaN(period.end.getTime()));
+        timelineCache.set(cacheKey, periods);
+        if (!document.getElementById(`dashboard-timeline-${providerIndex}-${modelIndex}`)) return;
+        panel.innerHTML = renderTimelineMarkup(periods, hours, meta);
+    } catch (error) {
+        if (!document.getElementById(`dashboard-timeline-${providerIndex}-${modelIndex}`)) return;
+        panel.innerHTML = errorMarkup('Timeline unavailable', error.message);
+    }
+}
+
 async function loadModelTimeline(providerIndex, modelIndex, provider, model) {
     const key = `${providerIndex}:${modelIndex}`;
     const panel = document.getElementById(`timeline-${providerIndex}-${modelIndex}`);
@@ -903,8 +953,9 @@ async function loadModelTimeline(providerIndex, modelIndex, provider, model) {
     }
     const hours = summaryRangeHours();
     const cacheKey = `${probeId}:${hours}`;
+    const meta = { probeId, providerName: provider.provider_name, modelName: model.model };
     if (timelineCache.has(cacheKey)) {
-        panel.innerHTML = renderTimelineMarkup(timelineCache.get(cacheKey), hours);
+        panel.innerHTML = renderTimelineMarkup(timelineCache.get(cacheKey), hours, meta);
         return;
     }
     panel.innerHTML = loadingMarkup('Loading uptime timeline');
@@ -915,14 +966,14 @@ async function loadModelTimeline(providerIndex, modelIndex, provider, model) {
         })).filter(period => !Number.isNaN(period.start.getTime()) && !Number.isNaN(period.end.getTime()));
         timelineCache.set(cacheKey, periods);
         if (!expandedTimelines.has(key)) return;
-        panel.innerHTML = renderTimelineMarkup(periods, hours);
+        panel.innerHTML = renderTimelineMarkup(periods, hours, meta);
     } catch (error) {
         if (!expandedTimelines.has(key)) return;
         panel.innerHTML = errorMarkup('Timeline unavailable', error.message);
     }
 }
 
-function renderTimelineMarkup(periods, hours) {
+function renderTimelineMarkup(periods, hours, meta = null) {
     const now = Date.now();
     const rangeStart = now - hours * 3600 * 1000;
     const rangeMs = Math.max(1, now - rangeStart);
@@ -932,15 +983,27 @@ function renderTimelineMarkup(periods, hours) {
     })).filter(period => period.end > period.start);
     const downtimeMs = clipped.reduce((sum, period) => sum + (period.end - period.start), 0);
     const uptimePct = Math.max(0, Math.min(100, ((rangeMs - downtimeMs) / rangeMs) * 100));
+    const canOpenLogs = meta && Number(meta.probeId) && !isGuest;
+    const periodAttrs = period => canOpenLogs
+        ? ` data-action="timeline-logs" data-probe-id="${Number(meta.probeId)}" data-provider-name="${escapeAttribute(meta.providerName || '')}" data-model-name="${escapeAttribute(meta.modelName || '')}" data-start="${period.start}" data-end="${period.end}"`
+        : '';
     const segments = clipped.map(period => {
         const left = ((period.start - rangeStart) / rangeMs) * 100;
         const width = ((period.end - period.start) / rangeMs) * 100;
-        return `<span class="segment" style="left:${left.toFixed(3)}%;width:${Math.max(width, 0.35).toFixed(3)}%" title="${escapeAttribute(formatDateTime(new Date(period.start)))} – ${escapeAttribute(formatDateTime(new Date(period.end)))}"></span>`;
+        const title = `${formatDateTime(new Date(period.start))} – ${formatDateTime(new Date(period.end))}`;
+        if (canOpenLogs) {
+            return `<button class="segment segment-btn" type="button" style="left:${left.toFixed(3)}%;width:${Math.max(width, 0.35).toFixed(3)}%" title="${escapeAttribute(title)}"${periodAttrs(period)} aria-label="View down logs ${escapeAttribute(title)}"></button>`;
+        }
+        return `<span class="segment" style="left:${left.toFixed(3)}%;width:${Math.max(width, 0.35).toFixed(3)}%" title="${escapeAttribute(title)}"></span>`;
     }).join('');
     const list = clipped.length
         ? `<ul class="timeline-periods">${clipped.map(period => {
             const duration = formatDurationMs(period.end - period.start);
-            return `<li><span class="pill-down">Down</span><span>${escapeHtml(formatDateTime(new Date(period.start)))} – ${escapeHtml(formatDateTime(new Date(period.end)))}</span><strong class="tabular">${escapeHtml(duration)}</strong></li>`;
+            const rangeLabel = `${formatDateTime(new Date(period.start))} – ${formatDateTime(new Date(period.end))}`;
+            if (canOpenLogs) {
+                return `<li><button class="timeline-period-btn" type="button"${periodAttrs(period)}><span class="pill-down">Down</span><span>${escapeHtml(rangeLabel)}</span><strong class="tabular">${escapeHtml(duration)}</strong></button></li>`;
+            }
+            return `<li><span class="pill-down">Down</span><span>${escapeHtml(rangeLabel)}</span><strong class="tabular">${escapeHtml(duration)}</strong></li>`;
         }).join('')}</ul>`
         : emptyMarkup('No downtime in range', 'All recorded probes in this window succeeded.');
     return `<div class="timeline-meta"><span>Window <strong>${hours}h</strong></span><span>Uptime <strong class="${rateClass(uptimePct)}">${uptimePct.toFixed(1)}%</strong></span><span>Downtime segments <strong>${clipped.length}</strong></span></div>
@@ -1238,6 +1301,33 @@ async function exportCSV() {
 function logPaginationMarkup(page, totalPages, position) {
     if (totalPages <= 1) return '';
     return `<nav class="pagination ${position === 'top' ? 'pagination-top' : ''}" aria-label="Request log pages ${position}"><button class="btn btn-secondary btn-sm" type="button" data-log-page="${page - 1}" ${page <= 1 ? 'disabled' : ''}>Previous</button><span>Page ${page} of ${totalPages}</span><button class="btn btn-secondary btn-sm" type="button" data-log-page="${page + 1}" ${page >= totalPages ? 'disabled' : ''}>Next</button></nav>`;
+}
+
+async function showDowntimeLogs(probeId, providerName, modelName, startMs, endMs) {
+    if (!probeId || isGuest) return;
+    const start = new Date(startMs);
+    const end = new Date(endMs);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return;
+    const rangeLabel = `${formatDateTime(start)} – ${formatDateTime(end)}`;
+    const generation = setModalContent('Down event logs', `${providerName} / ${modelName}`, loadingMarkup('Loading down event logs'));
+    showModal();
+    try {
+        const data = await apiCall(`/probes/${probeId}/results?limit=100&status=failed`);
+        if (generation !== modalGeneration) return;
+        const all = asArray(data && (data.results || data));
+        const padMs = 1000;
+        const results = all.filter(result => {
+            const created = new Date(result.created_at).getTime();
+            return Number.isFinite(created) && created >= (startMs - padMs) && created <= (endMs + padMs);
+        });
+        const body = document.getElementById('modalBody');
+        body.innerHTML = `<div class="log-toolbar" role="group" aria-label="Down event logs"><span class="muted">${escapeHtml(rangeLabel)}</span><span class="muted">${results.length} failed probe${results.length === 1 ? '' : 's'}</span><button class="btn btn-secondary btn-sm" type="button" data-action="view-all-logs">View all logs</button></div>
+            <div class="log-table-wrap"><table class="data-table log-table"><thead><tr><th scope="col">Time</th><th scope="col">Status</th><th scope="col">Latency</th><th scope="col">TTFT</th><th scope="col">Request ID</th><th scope="col">Error</th></tr></thead><tbody>${results.length ? results.map(result => `<tr><td data-label="Time">${escapeHtml(formatDateTime(result.created_at))}</td><td data-label="Status"><span class="status-pill danger">${escapeHtml(statusLabel(result.status))}</span></td><td data-label="Latency" class="tabular">${formatMetric(numberValue(result.latency_ms), 'ms', 0)}</td><td data-label="TTFT" class="tabular">${formatMetric(numberValue(result.ttft_ms), 'ms', 0, true)}</td><td data-label="Request ID"><code class="wrap-code">${escapeHtml(result.request_id || '-')}</code></td><td data-label="Error" class="log-error">${escapeHtml(displayErrorMessage(result.error_message) || '-')}</td></tr>`).join('') : '<tr><td colspan="6">No failed logs found for this down period.</td></tr>'}</tbody></table></div>`;
+        body.querySelector('[data-action="view-all-logs"]')?.addEventListener('click', () => showProbeDetails(probeId, providerName, modelName, 'failed', 1));
+    } catch (error) {
+        if (generation !== modalGeneration) return;
+        document.getElementById('modalBody').innerHTML = errorMarkup('Down event logs could not be loaded', error.message);
+    }
 }
 
 async function showProbeDetails(probeId, providerName, model, statusFilter = '', page = 1) {
