@@ -698,8 +698,9 @@ func TestHandleTriggerProbe(t *testing.T) {
 
 func TestHandleLogin(t *testing.T) {
 	handler, _ := setupTestHandler(t)
+	handler.config.WebPassword = "1"
 
-	body := `{"password": "test-password"}`
+	body := `{"password": "1"}`
 	req := httptest.NewRequest("POST", "/api/login", bytes.NewBufferString(body))
 	rec := httptest.NewRecorder()
 
@@ -714,6 +715,34 @@ func TestHandleLogin(t *testing.T) {
 
 	if resp["status"] != "ok" {
 		t.Errorf("expected status 'ok', got %q", resp["status"])
+	}
+
+	var authCookie *http.Cookie
+	for _, cookie := range rec.Result().Cookies() {
+		if cookie.Name == "auth_token" {
+			authCookie = cookie
+			break
+		}
+	}
+	if authCookie == nil {
+		t.Fatal("expected auth_token cookie to be set")
+	}
+	if authCookie.Value != "1" {
+		t.Errorf("expected cookie value %q, got %q", "1", authCookie.Value)
+	}
+	if authCookie.Path != "/" || !authCookie.HttpOnly || authCookie.SameSite != http.SameSiteLaxMode {
+		t.Errorf("unexpected cookie attributes: %+v", authCookie)
+	}
+
+	protected := AuthMiddleware("1", false)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	homeReq := httptest.NewRequest("GET", "/", nil)
+	homeReq.AddCookie(authCookie)
+	homeRec := httptest.NewRecorder()
+	protected.ServeHTTP(homeRec, homeReq)
+	if homeRec.Code != http.StatusOK {
+		t.Errorf("expected login cookie to authorize home page, got %d", homeRec.Code)
 	}
 }
 
