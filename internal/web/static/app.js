@@ -299,7 +299,7 @@ function renderDashboard(stats) {
                         ${!isGuest && Number(model.probe_id) ? `<button class="icon-text-btn" type="button" data-action="logs" data-provider-index="${providerIndex}" data-model-index="${modelIndex}">${logsIcon()}<span>Request logs</span></button>` : ''}
                     </div>
                     ${renderErrorPanel(model, error, unavailable, providerIndex, modelIndex)}
-                    ${Number(model.probe_id) ? `<div class="timeline-panel dashboard-timeline" id="dashboard-timeline-${providerIndex}-${modelIndex}">${loadingMarkup('Loading uptime timeline')}</div>` : ''}
+                    ${unavailable && Number(model.probe_id) ? `<div class="timeline-panel dashboard-timeline" id="dashboard-timeline-${providerIndex}-${modelIndex}">${loadingMarkup('Loading latest downtime')}</div>` : ''}
                 </article>`;
         }).join('');
 
@@ -924,10 +924,10 @@ async function loadDashboardTimeline(providerIndex, modelIndex, provider, model,
     const cacheKey = `${probeId}:${hours}`;
     const meta = { probeId, providerName: provider.provider_name, modelName: model.model };
     if (timelineCache.has(cacheKey)) {
-        panel.innerHTML = renderTimelineMarkup(timelineCache.get(cacheKey), hours, meta);
+        panel.innerHTML = renderLatestDowntimeMarkup(timelineCache.get(cacheKey), hours, meta);
         return;
     }
-    panel.innerHTML = loadingMarkup('Loading uptime timeline');
+    panel.innerHTML = loadingMarkup('Loading latest downtime');
     try {
         const periods = asArray(await apiCall(`/probes/${probeId}/downtime?hours=${hours}`)).map(period => ({
             start: new Date(period.start),
@@ -935,11 +935,16 @@ async function loadDashboardTimeline(providerIndex, modelIndex, provider, model,
         })).filter(period => !Number.isNaN(period.start.getTime()) && !Number.isNaN(period.end.getTime()));
         timelineCache.set(cacheKey, periods);
         if (!document.getElementById(`dashboard-timeline-${providerIndex}-${modelIndex}`)) return;
-        panel.innerHTML = renderTimelineMarkup(periods, hours, meta);
+        panel.innerHTML = renderLatestDowntimeMarkup(periods, hours, meta);
     } catch (error) {
         if (!document.getElementById(`dashboard-timeline-${providerIndex}-${modelIndex}`)) return;
         panel.innerHTML = errorMarkup('Timeline unavailable', error.message);
     }
+}
+
+function renderLatestDowntimeMarkup(periods, hours, meta = null) {
+    const latest = periods.length ? [periods[periods.length - 1]] : [];
+    return renderTimelineMarkup(latest, hours, meta);
 }
 
 async function loadModelTimeline(providerIndex, modelIndex, provider, model) {
