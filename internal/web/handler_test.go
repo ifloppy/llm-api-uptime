@@ -573,6 +573,64 @@ func TestHandleDailyStats(t *testing.T) {
 	}
 }
 
+func TestHandleDailyStatsRange(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	provider := createTestProviderInDB(t, db, "TestProvider")
+	probe := &model.Probe{ProviderID: provider.ID, Model: "gpt-4", Enabled: true}
+	if err := db.CreateProbe(probe); err != nil {
+		t.Fatalf("CreateProbe: %v", err)
+	}
+	now := time.Now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	for _, result := range []*model.Result{
+		{ProbeID: probe.ID, Status: model.StatusSuccess, LatencyMs: 100, CreatedAt: today.AddDate(0, 0, -3).Add(12 * time.Hour)},
+		{ProbeID: probe.ID, Status: model.StatusSuccess, LatencyMs: 200, CreatedAt: today.AddDate(0, 0, -1).Add(12 * time.Hour)},
+	} {
+		if err := db.SaveResult(result); err != nil {
+			t.Fatalf("SaveResult: %v", err)
+		}
+	}
+
+	from := today.AddDate(0, 0, -5).Format("2006-01-02")
+	to := today.AddDate(0, 0, -2).Format("2006-01-02")
+	req := markGuest(httptest.NewRequest("GET", "/api/stats/daily?from="+from+"&to="+to, nil))
+	rec := httptest.NewRecorder()
+	handler.handleDailyStats(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var stats []model.ProviderDailyStats
+	if err := json.NewDecoder(rec.Body).Decode(&stats); err != nil {
+		t.Fatalf("decode daily stats: %v", err)
+	}
+	if len(stats) != 1 || len(stats[0].Models) != 1 {
+		t.Fatalf("unexpected daily stats shape: %+v", stats)
+	}
+	daily := stats[0].Models[0].Daily
+	if len(daily) != 1 || daily[0].Date != today.AddDate(0, 0, -3).Format("2006-01-02") {
+		t.Fatalf("range daily = %+v, want only the -3 day", daily)
+	}
+	if daily[0].Total != 1 || daily[0].AvgLatencyMs != 100 {
+		t.Errorf("range daily aggregate = %+v", daily[0])
+	}
+
+	// Reversed from/to must still return the same bounded window.
+	req = markGuest(httptest.NewRequest("GET", "/api/stats/daily?from="+to+"&to="+from, nil))
+	rec = httptest.NewRecorder()
+	handler.handleDailyStats(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("reversed range expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var stats2 []model.ProviderDailyStats
+	if err := json.NewDecoder(rec.Body).Decode(&stats2); err != nil {
+		t.Fatalf("decode daily stats: %v", err)
+	}
+	if len(stats2) != 1 || len(stats2[0].Models[0].Daily) != 1 {
+		t.Fatalf("reversed range daily = %+v", stats2)
+	}
+}
+
 func TestHandleHourlyStats(t *testing.T) {
 	handler, db := setupTestHandler(t)
 	defer db.Close()

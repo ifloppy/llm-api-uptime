@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Mock</title>
+</head>
+<body>
+<script id="mock-api" type="text/plain">
+(function () {
+    var HOUR = 3600 * 1000;
+    var now = Date.now();
+    function iso(ms) { return new Date(ms).toISOString(); }
+    function localDate(ms) {
+        var d = new Date(ms);
+        var m = String(d.getMonth() + 1).padStart(2, '0');
+        var day = String(d.getDate()).padStart(2, '0');
+        return d.getFullYear() + '-' + m + '-' + day;
+    }
+    function json(data) {
+        return new Response(JSON.stringify(data), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+        });
+    }
+    function model(overrides) {
+        return Object.assign({
+            probe_id: 0,
+            model: 'model',
+            last_status: 'success',
+            total_probes: 240,
+            success_count: 240,
+            success_rate: 100,
+            today_total: 240,
+            today_success_count: 240,
+            today_uptime: 100,
+            avg_latency_ms: 400,
+            avg_ttft_ms: 120,
+            avg_tps: 40,
+            avg_tps_exclude_ttft: 48,
+            latest_result_time: iso(now - 2 * 60000)
+        }, overrides);
+    }
+    var downPeriods = [
+        { start: iso(now - 22 * HOUR), end: iso(now - 21 * HOUR) },
+        { start: iso(now - 6 * HOUR), end: iso(now - 5 * HOUR) },
+        { start: iso(now - 45 * 60000), end: iso(now) }
+    ];
+    var mockStats = [
+        {
+            provider_name: 'Anthropic',
+            total_probes: 2400,
+            success_count: 2392,
+            success_rate: 99.7,
+            models: [
+                model({ probe_id: 201, model: 'claude-sonnet-4-5', today_total: 241, today_success_count: 241, avg_latency_ms: 812, avg_ttft_ms: 302, avg_tps: 42.5, avg_tps_exclude_ttft: 51.2 }),
+                model({ probe_id: 202, model: 'claude-haiku-3-5', today_total: 238, today_success_count: 238, avg_latency_ms: 240, avg_ttft_ms: 88, avg_tps: 71.8, avg_tps_exclude_ttft: 86.4 })
+            ]
+        },
+        {
+            provider_name: 'OpenAI',
+            total_probes: 2160,
+            success_count: 1890,
+            success_rate: 87.5,
+            models: [
+                model({
+                    probe_id: 101,
+                    model: 'gpt-4o',
+                    last_status: 'error',
+                    total_probes: 244,
+                    success_count: 216,
+                    today_total: 244,
+                    today_success_count: 216,
+                    today_uptime: 88.5,
+                    success_rate: 88.5,
+                    avg_latency_ms: 460,
+                    avg_ttft_ms: 210,
+                    avg_tps: 33.4,
+                    avg_tps_exclude_ttft: 40.1,
+                    status_code: 503,
+                    error_code: 'service_unavailable',
+                    request_id: 'req_8f2c1e9a04bd',
+                    error_message: 'POST "https://api.openai.com/v1/chat/completions": 503 The service is temporarily unavailable. Retry after 30 seconds.',
+                    latest_result_time: iso(now - 2 * 60000)
+                }),
+                model({ probe_id: 102, model: 'gpt-4o-mini', today_total: 246, today_success_count: 246, avg_latency_ms: 188, avg_ttft_ms: 66, avg_tps: 96.3, avg_tps_exclude_ttft: 112.8 }),
+                model({ probe_id: 103, model: 'o3-mini', today_total: 240, today_success_count: 240, avg_latency_ms: 540, avg_ttft_ms: 210, avg_tps: 34.1, avg_tps_exclude_ttft: 41.6 })
+            ]
+        }
+    ];
+    function dailySeries(probeId, name, latency, ttft, tps, incidents) {
+        var daily = [];
+        for (var d = 34; d >= 0; d--) {
+            var dateStr = localDate(now - d * 86400000);
+            var total = 240;
+            var failed = 0;
+            if (incidents && incidents.indexOf(d) !== -1) {
+                failed = 60;
+            } else if (d % 13 === 0) {
+                failed = 5;
+            }
+            daily.push({
+                date: dateStr,
+                total: total,
+                failed: failed,
+                success: failed ? Math.round((total - failed) / total * 1000) / 10 : 100,
+                avg_latency_ms: latency,
+                avg_ttft_ms: ttft,
+                avg_tps: tps
+            });
+        }
+        return { probe_id: probeId, model: name, daily: daily };
+    }
+    var mockDaily = [
+        {
+            provider_name: 'Anthropic',
+            models: [
+                dailySeries(201, 'claude-sonnet-4-5', 812, 302, 42.5, [20, 9]),
+                dailySeries(202, 'claude-haiku-3-5', 240, 88, 71.8, [27])
+            ]
+        },
+        {
+            provider_name: 'OpenAI',
+            models: [
+                dailySeries(101, 'gpt-4o', 460, 210, 33.4, [3, 9, 22]),
+                dailySeries(102, 'gpt-4o-mini', 188, 66, 96.3, []),
+                dailySeries(103, 'o3-mini', 540, 210, 34.1, [15])
+            ]
+        }
+    ];
+    var mockHourly = [
+        {
+            provider_name: 'Anthropic',
+            models: [
+                { probe_id: 201, model: 'claude-sonnet-4-5', hourly: hourlySeries(201) },
+                { probe_id: 202, model: 'claude-haiku-3-5', hourly: hourlySeries(202) }
+            ]
+        },
+        {
+            provider_name: 'OpenAI',
+            models: [
+                { probe_id: 101, model: 'gpt-4o', hourly: hourlySeries(101, 2) },
+                { probe_id: 102, model: 'gpt-4o-mini', hourly: hourlySeries(102) },
+                { probe_id: 103, model: 'o3-mini', hourly: hourlySeries(103) }
+            ]
+        }
+    ];
+    function hourlySeries(probeId, failHours) {
+        var hourly = [];
+        var start = new Date();
+        start.setHours(0, 0, 0, 0);
+        var hoursElapsed = Math.min(24, start.getHours() + 1);
+        for (var h = 0; h < hoursElapsed; h++) {
+            var stamp = new Date(start.getFullYear(), start.getMonth(), start.getDate(), h, 0, 0, 0);
+            var key = stamp.getFullYear() + '-' + String(stamp.getMonth() + 1).padStart(2, '0') + '-' + String(stamp.getDate()).padStart(2, '0') + ' ' + String(h).padStart(2, '0') + ':00:00';
+            var failed = (failHours && h >= failHours) ? 8 : 0;
+            hourly.push({ hour: key, total: 10, failed: failed });
+        }
+        return hourly;
+    }
+    var mockProviders = [
+        { id: 1, name: 'Anthropic', base_url: 'https://api.anthropic.com', api_type: 'anthropic', max_tokens: 2, enabled: true },
+        { id: 2, name: 'OpenAI', base_url: 'https://api.openai.com', api_type: 'openai', max_tokens: 2, enabled: true }
+    ];
+    var mockProbes = [
+        { id: 101, provider_id: 2, model: 'gpt-4o', enabled: true, provider_name: 'OpenAI' },
+        { id: 102, provider_id: 2, model: 'gpt-4o-mini', enabled: true, provider_name: 'OpenAI' },
+        { id: 103, provider_id: 2, model: 'o3-mini', enabled: true, provider_name: 'OpenAI' },
+        { id: 201, provider_id: 1, model: 'claude-sonnet-4-5', enabled: true, provider_name: 'Anthropic' },
+        { id: 202, provider_id: 1, model: 'claude-haiku-3-5', enabled: true, provider_name: 'Anthropic' }
+    ];
+    window.fetch = async function (input, init) {
+        var url = typeof input === 'string' ? input : input.url;
+        if (url.indexOf('/api/status') !== -1) {
+            return json({ guest: true, running: true, last_probe_time: iso(now - 4 * 60000) });
+        }
+        if (url.indexOf('/api/stats/daily') !== -1) return json(mockDaily);
+        if (url.indexOf('/api/stats/hourly') !== -1) return json(mockHourly);
+        if (url.indexOf('/api/stats') !== -1) return json(mockStats);
+        if (url.indexOf('/api/probes/') !== -1 && url.indexOf('/downtime') !== -1) {
+            return json(url.indexOf('probes/101') !== -1 ? downPeriods : []);
+        }
+        if (url.indexOf('/api/update') !== -1) return json(null);
+        if (url.indexOf('/api/probes') !== -1) return json(mockProbes);
+        if (url.indexOf('/api/providers') !== -1) return json(mockProviders);
+        return json(null);
+    };
+})();
+</script>
+<script>
+(async function () {
+    var html = await (await fetch('/index.html')).text();
+    var mockScript = document.getElementById('mock-api').textContent;
+    var appTag = '<scr' + 'ipt src="/app.js"></scr' + 'ipt>';
+    var injected = html.replace(
+        appTag,
+        '<scr' + 'ipt>' + mockScript + '</scr' + 'ipt>' + appTag
+    );
+    document.open();
+    document.write(injected);
+    document.close();
+})();
+</script>
+</body>
+</html>

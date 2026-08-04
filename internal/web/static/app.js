@@ -31,6 +31,9 @@ const timelineCache = new Map();
 const chartPreferences = {
     rangeDays: DEFAULT_CHART_DAYS,
     mode: 'per-point',
+    custom: false,
+    from: '',
+    to: '',
     selectedModelByProvider: {}
 };
 let chartPreferencesLoaded = false;
@@ -53,6 +56,11 @@ function initChartPreferences() {
     if (stored && typeof stored === 'object') {
         if (CHART_RANGE_OPTIONS.includes(Number(stored.rangeDays))) chartPreferences.rangeDays = Number(stored.rangeDays);
         if (stored.mode === 'per-point' || stored.mode === 'per-day') chartPreferences.mode = stored.mode;
+        if (stored.custom === true) {
+            chartPreferences.custom = true;
+            if (typeof stored.from === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(stored.from)) chartPreferences.from = stored.from;
+            if (typeof stored.to === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(stored.to)) chartPreferences.to = stored.to;
+        }
         if (stored.selectedModelByProvider && typeof stored.selectedModelByProvider === 'object') chartPreferences.selectedModelByProvider = stored.selectedModelByProvider;
     }
     chartPreferencesLoaded = true;
@@ -65,6 +73,9 @@ function persistChartPreferences() {
         localStorage.setItem('llm_chart_preferences', JSON.stringify({
             rangeDays: chartPreferences.rangeDays,
             mode: chartPreferences.mode,
+            custom: chartPreferences.custom,
+            from: chartPreferences.from,
+            to: chartPreferences.to,
             selectedModelByProvider: chartPreferences.selectedModelByProvider
         }));
     } catch (error) { /* ignore quota errors */ }
@@ -74,20 +85,39 @@ function applyChartControlsState() {
     const rangeToday = document.getElementById('chartRangeToday');
     const range7 = document.getElementById('chartRange7');
     const range30 = document.getElementById('chartRange30');
+    const rangeCustom = document.getElementById('chartRangeCustom');
     const modePerPoint = document.getElementById('chartModePerPoint');
     const modePerDay = document.getElementById('chartModePerDay');
     const range = chartPreferences.rangeDays;
+    const custom = chartPreferences.custom;
     if (rangeToday) {
-        rangeToday.classList.toggle('active', range === 0);
-        rangeToday.setAttribute('aria-pressed', String(range === 0));
+        const active = !custom && range === 0;
+        rangeToday.classList.toggle('active', active);
+        rangeToday.setAttribute('aria-pressed', String(active));
     }
     if (range7) {
-        range7.classList.toggle('active', range === 7);
-        range7.setAttribute('aria-pressed', String(range === 7));
+        const active = !custom && range === 7;
+        range7.classList.toggle('active', active);
+        range7.setAttribute('aria-pressed', String(active));
     }
     if (range30) {
-        range30.classList.toggle('active', range === 30);
-        range30.setAttribute('aria-pressed', String(range === 30));
+        const active = !custom && range === 30;
+        range30.classList.toggle('active', active);
+        range30.setAttribute('aria-pressed', String(active));
+    }
+    if (rangeCustom) {
+        rangeCustom.classList.toggle('active', custom);
+        rangeCustom.setAttribute('aria-pressed', String(custom));
+    }
+    const picker = document.getElementById('customRangePicker');
+    if (picker) {
+        picker.hidden = !custom;
+        if (custom) {
+            const from = document.getElementById('customFrom');
+            const to = document.getElementById('customTo');
+            if (from) from.value = chartPreferences.from || '';
+            if (to) to.value = chartPreferences.to || '';
+        }
     }
     if (modePerPoint && modePerDay) {
         const isPerPoint = chartPreferences.mode === 'per-point';
@@ -95,15 +125,15 @@ function applyChartControlsState() {
         modePerPoint.setAttribute('aria-pressed', String(isPerPoint));
         modePerDay.classList.toggle('active', !isPerPoint);
         modePerDay.setAttribute('aria-pressed', String(!isPerPoint));
-        modePerDay.textContent = range === 0 ? 'Per hour' : 'Per day';
+        modePerDay.textContent = custom || range !== 0 ? 'Per day' : 'Per hour';
         modePerPoint.textContent = 'Per point';
     }
     const hint = document.getElementById('chartControlsHint');
     if (hint) {
         if (chartPreferences.mode === 'per-day') {
-            hint.textContent = range === 0
-                ? 'Hover any hour in the chart to see every model at that hour.'
-                : 'Hover any day in the chart to see every model on that date.';
+            hint.textContent = custom || range === 0
+                ? 'Hover any day in the chart to see every model on that date.'
+                : 'Hover any hour in the chart to see every model at that hour.';
         } else {
             hint.textContent = 'Hover any data point in the chart for a single model\'s value.';
         }
@@ -122,7 +152,6 @@ function initActions() {
     document.getElementById('restartBtn').addEventListener('click', restartUpdate);
     document.getElementById('addProviderBtn').addEventListener('click', showAddProvider);
     document.getElementById('addModelBtn').addEventListener('click', showAddModel);
-    document.getElementById('timeRange').addEventListener('change', loadStats);
     document.getElementById('statsCopyStatusBtn').addEventListener('click', copyCurrentStatus);
     document.getElementById('toggleChartsBtn').addEventListener('click', toggleAllCharts);
     document.getElementById('exportCsvBtn').addEventListener('click', exportCSV);
@@ -130,6 +159,10 @@ function initActions() {
     document.getElementById('chartRangeToday').addEventListener('click', () => setChartRange(0));
     document.getElementById('chartRange7').addEventListener('click', () => setChartRange(7));
     document.getElementById('chartRange30').addEventListener('click', () => setChartRange(30));
+    document.getElementById('chartRangeCustom').addEventListener('click', enableCustomRange);
+    document.getElementById('customFrom').addEventListener('change', setCustomRange);
+    document.getElementById('customTo').addEventListener('change', setCustomRange);
+    document.getElementById('applyCustomRange').addEventListener('click', setCustomRange);
     document.getElementById('chartModePerPoint').addEventListener('click', () => setChartMode('per-point'));
     document.getElementById('chartModePerDay').addEventListener('click', () => setChartMode('per-day'));
     document.getElementById('dashboardProviders').addEventListener('click', handleDashboardAction);
@@ -143,8 +176,45 @@ function initActions() {
 }
 
 function setChartRange(days) {
-    if (!CHART_RANGE_OPTIONS.includes(days) || chartPreferences.rangeDays === days) return;
+    if (!CHART_RANGE_OPTIONS.includes(days)) return;
+    if (!chartPreferences.custom && chartPreferences.rangeDays === days) return;
     chartPreferences.rangeDays = days;
+    chartPreferences.custom = false;
+    chartPreferences.selectedModelByProvider = {};
+    persistChartPreferences();
+    applyChartControlsState();
+    if (currentPage === 'stats') loadStats();
+}
+
+function isCustomRange() {
+    return chartPreferences.custom && /^\d{4}-\d{2}-\d{2}$/.test(chartPreferences.from) && /^\d{4}-\d{2}-\d{2}$/.test(chartPreferences.to);
+}
+
+function enableCustomRange() {
+    if (chartPreferences.custom) return;
+    const today = todayISO();
+    if (!chartPreferences.from) chartPreferences.from = addDaysISO(today, -6);
+    if (!chartPreferences.to) chartPreferences.to = today;
+    chartPreferences.custom = true;
+    chartPreferences.rangeDays = DEFAULT_CHART_DAYS;
+    chartPreferences.selectedModelByProvider = {};
+    persistChartPreferences();
+    applyChartControlsState();
+    if (currentPage === 'stats') loadStats();
+}
+
+function setCustomRange() {
+    const from = document.getElementById('customFrom').value;
+    const to = document.getElementById('customTo').value;
+    if (!from || !to) return;
+    if (from > to) {
+        showToast('Start date must be on or before the end date', 'error');
+        return;
+    }
+    chartPreferences.custom = true;
+    chartPreferences.rangeDays = DEFAULT_CHART_DAYS;
+    chartPreferences.from = from;
+    chartPreferences.to = to;
     chartPreferences.selectedModelByProvider = {};
     persistChartPreferences();
     applyChartControlsState();
@@ -299,7 +369,7 @@ function renderDashboard(stats) {
                         ${!isGuest && Number(model.probe_id) ? `<button class="icon-text-btn" type="button" data-action="logs" data-provider-index="${providerIndex}" data-model-index="${modelIndex}">${logsIcon()}<span>Request logs</span></button>` : ''}
                     </div>
                     ${renderErrorPanel(model, error, unavailable, providerIndex, modelIndex)}
-                    ${unavailable && Number(model.probe_id) ? `<div class="timeline-panel dashboard-timeline" id="dashboard-timeline-${providerIndex}-${modelIndex}">${loadingMarkup('Loading latest downtime')}</div>` : ''}
+                    ${unavailable && Number(model.probe_id) ? `<div class="timeline-panel dashboard-timeline dashboard-timeline-compact" id="dashboard-timeline-${providerIndex}-${modelIndex}">${loadingMarkup('Loading latest downtime')}</div>` : ''}
                 </article>`;
         }).join('');
 
@@ -596,13 +666,16 @@ async function loadStats() {
     const generation = ++statsLoadGeneration;
     const container = document.getElementById('statsProviders');
     container.innerHTML = loadingMarkup('Loading summary and trend charts');
-    const hours = Number(document.getElementById('timeRange').value);
-    const isToday = chartPreferences.rangeDays === 0;
-    const chartPromise = isToday
-        ? apiCall(`/stats/hourly?hours=${todayHoursElapsed()}`)
-        : apiCall(`/stats/daily?days=${chartPreferences.rangeDays}`);
+    const custom = isCustomRange();
+    const isToday = !custom && chartPreferences.rangeDays === 0;
+    const chartPromise = custom
+        ? apiCall(`/stats/daily?${summaryRangeQuery()}`)
+        : isToday
+            ? apiCall(`/stats/hourly?hours=${todayHoursElapsed()}`)
+            : apiCall(`/stats/daily?days=${chartPreferences.rangeDays}`);
+    const summaryPromise = apiCall(`/stats?${summaryRangeQuery()}`);
     const [summaryResult, chartResult] = await Promise.allSettled([
-        apiCall(`/stats?hours=${hours}`),
+        summaryPromise,
         chartPromise
     ]);
     if (generation !== statsLoadGeneration || currentPage !== 'stats') return;
@@ -614,12 +687,12 @@ async function loadStats() {
         return;
     }
     statsRows = asArray(summaryResult.value);
-    if (isToday) {
-        hourlyStats = chartResult.status === 'fulfilled' ? normalizeHourlyStats(chartResult.value) : [];
-        dailyStats = [];
-    } else {
+    if (custom || !isToday) {
         dailyStats = chartResult.status === 'fulfilled' ? normalizeDailyStats(chartResult.value) : [];
         hourlyStats = [];
+    } else {
+        hourlyStats = chartResult.status === 'fulfilled' ? normalizeHourlyStats(chartResult.value) : [];
+        dailyStats = [];
     }
     chartLoadError = chartResult.status === 'rejected' ? chartResult.reason.message : '';
     timelineCache.clear();
@@ -634,8 +707,9 @@ function renderStats() {
         return;
     }
 
-    const rangeLabel = chartPreferences.rangeDays === 0 ? "Today's hourly" : chartPreferences.rangeDays === 7 ? '7-day' : '30-day';
-    const bucket = chartPreferences.rangeDays === 0 ? 'hour' : 'date';
+    const custom = isCustomRange();
+    const rangeLabel = custom ? 'Custom range' : chartPreferences.rangeDays === 0 ? "Today's hourly" : chartPreferences.rangeDays === 7 ? '7-day' : '30-day';
+    const bucket = custom || chartPreferences.rangeDays !== 0 ? 'date' : 'hour';
     const subtitle = chartPreferences.mode === 'per-day'
         ? `Aggregates by ${bucket}, all models shown per ${bucket}`
         : `Aggregates by ${bucket}, one model can be highlighted`;
@@ -866,16 +940,55 @@ function todayHourKeys() {
 }
 
 function chartBucketKeys() {
+    if (isCustomRange()) return customDateKeys();
     return chartPreferences.rangeDays === 0 ? todayHourKeys() : recentCalendarDates(chartPreferences.rangeDays);
 }
 
+function customDateKeys() {
+    const from = parseISODate(chartPreferences.from);
+    const to = parseISODate(chartPreferences.to);
+    if (!from || !to) return [];
+    const dates = [];
+    let cursor = from;
+    while (cursor <= to) {
+        dates.push(isoDateString(cursor));
+        cursor.setDate(cursor.getDate() + 1);
+    }
+    return dates;
+}
+
+function parseISODate(value) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value));
+    if (!match) return null;
+    const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isoDateString(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+function todayISO() {
+    return isoDateString(new Date());
+}
+
+function addDaysISO(value, days) {
+    const date = parseISODate(value) || new Date();
+    date.setDate(date.getDate() + days);
+    return isoDateString(date);
+}
+
 function chartSeriesForProvider(providerName) {
+    if (isCustomRange()) return dailyStats.find(item => item.provider_name === providerName) || null;
     if (chartPreferences.rangeDays === 0) return hourlyStats.find(item => item.provider_name === providerName) || null;
     return dailyStats.find(item => item.provider_name === providerName) || null;
 }
 
 function formatBucketLabel(bucket) {
-    if (chartPreferences.rangeDays === 0) {
+    if (!isCustomRange() && chartPreferences.rangeDays === 0) {
         const hour = Number(String(bucket).slice(11, 13));
         if (Number.isFinite(hour)) return `${String(hour).padStart(2, '0')}:00`;
         return bucket;
@@ -884,7 +997,7 @@ function formatBucketLabel(bucket) {
 }
 
 function formatBucketLong(bucket) {
-    if (chartPreferences.rangeDays === 0) {
+    if (!isCustomRange() && chartPreferences.rangeDays === 0) {
         const date = new Date(String(bucket).replace(' ', 'T'));
         if (Number.isNaN(date.getTime())) return bucket;
         return date.toLocaleString(document.documentElement.lang, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -892,9 +1005,28 @@ function formatBucketLong(bucket) {
     return formatLongDate(bucket);
 }
 
+function summaryRangeQuery() {
+    if (isCustomRange()) {
+        return `from=${encodeURIComponent(chartPreferences.from)}&to=${encodeURIComponent(chartPreferences.to)}`;
+    }
+    if (chartPreferences.rangeDays === 0) {
+        const today = todayISO();
+        return `from=${today}&to=${today}`;
+    }
+    return `days=${chartPreferences.rangeDays}`;
+}
+
 function summaryRangeHours() {
-    const hours = Number(document.getElementById('timeRange')?.value);
-    return Number.isFinite(hours) && hours > 0 ? hours : 24;
+    if (isCustomRange()) {
+        const from = parseISODate(chartPreferences.from);
+        const to = parseISODate(chartPreferences.to);
+        if (from && to) {
+            const days = Math.min(30, Math.round((to - from) / (24 * 3600 * 1000)) + 1);
+            return days * 24;
+        }
+    }
+    const days = chartPreferences.rangeDays === 0 ? 1 : chartPreferences.rangeDays;
+    return days * 24;
 }
 
 function toggleModelTimeline(providerIndex, modelIndex, model) {
@@ -943,8 +1075,7 @@ async function loadDashboardTimeline(providerIndex, modelIndex, provider, model,
 }
 
 function renderLatestDowntimeMarkup(periods, hours, meta = null) {
-    const latest = periods.length ? [periods[periods.length - 1]] : [];
-    return renderTimelineMarkup(latest, hours, meta);
+    return renderTimelineMarkup(periods, hours, meta, { listLimit: 1 });
 }
 
 async function loadModelTimeline(providerIndex, modelIndex, provider, model) {
@@ -978,7 +1109,7 @@ async function loadModelTimeline(providerIndex, modelIndex, provider, model) {
     }
 }
 
-function renderTimelineMarkup(periods, hours, meta = null) {
+function renderTimelineMarkup(periods, hours, meta = null, options = {}) {
     const now = Date.now();
     const rangeStart = now - hours * 3600 * 1000;
     const rangeMs = Math.max(1, now - rangeStart);
@@ -1001,8 +1132,9 @@ function renderTimelineMarkup(periods, hours, meta = null) {
         }
         return `<span class="segment" style="left:${left.toFixed(3)}%;width:${Math.max(width, 0.35).toFixed(3)}%" title="${escapeAttribute(title)}"></span>`;
     }).join('');
-    const list = clipped.length
-        ? `<ul class="timeline-periods">${clipped.map(period => {
+    const listPeriods = options.listLimit ? clipped.slice(-options.listLimit) : clipped;
+    const list = listPeriods.length
+        ? `<ul class="timeline-periods">${listPeriods.map(period => {
             const duration = formatDurationMs(period.end - period.start);
             const rangeLabel = `${formatDateTime(new Date(period.start))} – ${formatDateTime(new Date(period.end))}`;
             if (canOpenLogs) {
@@ -1048,8 +1180,8 @@ function renderProviderChart(providerIndex, provider) {
     if (!container) return;
     container.replaceChildren();
     const seriesProvider = chartSeriesForProvider(provider.provider_name);
-    const isToday = chartPreferences.rangeDays === 0;
-    const rangeLabel = isToday ? "today's hourly" : chartPreferences.rangeDays === 7 ? '7-day' : '30-day';
+    const isToday = !isCustomRange() && chartPreferences.rangeDays === 0;
+    const rangeLabel = isCustomRange() ? 'custom range' : isToday ? "today's hourly" : chartPreferences.rangeDays === 7 ? '7-day' : '30-day';
     if (!seriesProvider || !seriesProvider.models.some(series => series.points.length)) {
         container.innerHTML = emptyMarkup(`No ${rangeLabel} chart data`, isToday
             ? 'Hourly SLA will appear after probes have run today.'
@@ -1288,10 +1420,10 @@ async function clearStats() {
 }
 
 async function exportCSV() {
-    const hours = document.getElementById('timeRange').value;
+    const query = summaryRangeQuery();
     const token = localStorage.getItem('auth_token');
     try {
-        const response = await fetch(`${API_BASE}/export/csv?hours=${encodeURIComponent(hours)}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+        const response = await fetch(`${API_BASE}/export/csv?${query}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
         if (!response.ok) throw new Error(`Export failed (${response.status})`);
         const blob = await response.blob();
         const url = URL.createObjectURL(blob);

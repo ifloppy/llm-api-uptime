@@ -483,6 +483,76 @@ func TestGetStatsTodayUsesLocalCalendarDay(t *testing.T) {
 	}
 }
 
+func TestGetStatsCalendarRange(t *testing.T) {
+	store := setupTestDB(t)
+	defer store.Close()
+
+	provider := createTestProvider(t, store, "Provider")
+	probe := createTestProbe(t, store, provider.ID, "model")
+	now := time.Now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+
+	for _, result := range []*model.Result{
+		{ProbeID: probe.ID, Status: model.StatusSuccess, LatencyMs: 100, CreatedAt: today.AddDate(0, 0, -5).Add(12 * time.Hour)},
+		{ProbeID: probe.ID, Status: model.StatusSuccess, LatencyMs: 200, CreatedAt: today.AddDate(0, 0, -3).Add(12 * time.Hour)},
+		{ProbeID: probe.ID, Status: model.StatusSuccess, LatencyMs: 300, CreatedAt: today.AddDate(0, 0, -1).Add(12 * time.Hour)},
+	} {
+		if err := store.SaveResult(result); err != nil {
+			t.Fatalf("SaveResult: %v", err)
+		}
+	}
+
+	stats, err := store.GetStats(model.StatsQuery{
+		From: today.AddDate(0, 0, -6),
+		To:   today.AddDate(0, 0, -4),
+	})
+	if err != nil {
+		t.Fatalf("GetStats range: %v", err)
+	}
+	if len(stats) != 1 || len(stats[0].Models) != 1 {
+		t.Fatalf("unexpected stats shape: %+v", stats)
+	}
+	got := stats[0].Models[0]
+	if got.TotalProbes != 1 || got.SuccessCount != 1 || got.AvgLatencyMs != 100 {
+		t.Errorf("range aggregate = total %d success %d avg %v, want only the -5 day result", got.TotalProbes, got.SuccessCount, got.AvgLatencyMs)
+	}
+}
+
+func TestGetDailyStatsRange(t *testing.T) {
+	store := setupTestDB(t)
+	defer store.Close()
+
+	provider := createTestProvider(t, store, "Provider")
+	probe := createTestProbe(t, store, provider.ID, "model")
+	now := time.Now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+
+	for _, result := range []*model.Result{
+		{ProbeID: probe.ID, Status: model.StatusSuccess, LatencyMs: 100, CreatedAt: today.AddDate(0, 0, -5).Add(12 * time.Hour)},
+		{ProbeID: probe.ID, Status: model.StatusSuccess, LatencyMs: 200, CreatedAt: today.AddDate(0, 0, -3).Add(12 * time.Hour)},
+		{ProbeID: probe.ID, Status: model.StatusSuccess, LatencyMs: 300, CreatedAt: today.AddDate(0, 0, -1).Add(12 * time.Hour)},
+	} {
+		if err := store.SaveResult(result); err != nil {
+			t.Fatalf("SaveResult: %v", err)
+		}
+	}
+
+	stats, err := store.GetDailyStatsRange(today.AddDate(0, 0, -6), today.AddDate(0, 0, -4))
+	if err != nil {
+		t.Fatalf("GetDailyStatsRange: %v", err)
+	}
+	if len(stats) != 1 || len(stats[0].Models) != 1 {
+		t.Fatalf("unexpected daily stats shape: %+v", stats)
+	}
+	daily := stats[0].Models[0].Daily
+	if len(daily) != 1 || daily[0].Date != today.AddDate(0, 0, -5).Format("2006-01-02") {
+		t.Fatalf("range daily = %+v, want only the -5 day", daily)
+	}
+	if daily[0].Total != 1 || daily[0].Success != 100 {
+		t.Errorf("daily aggregate = %+v", daily[0])
+	}
+}
+
 func TestGetDowntimePeriods(t *testing.T) {
 	store := setupTestDB(t)
 	defer store.Close()

@@ -420,20 +420,26 @@ func (h *Handler) handleDeleteProbe(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleStats(w http.ResponseWriter, r *http.Request) {
-	hoursStr := r.URL.Query().Get("hours")
-	daysStr := r.URL.Query().Get("days")
-
 	query := model.StatsQuery{}
-	if hoursStr != "" {
-		hours, err := strconv.Atoi(hoursStr)
-		if err == nil {
+	if hoursStr := r.URL.Query().Get("hours"); hoursStr != "" {
+		if hours, err := strconv.Atoi(hoursStr); err == nil {
 			query.Hours = hours
 		}
 	}
-	if daysStr != "" {
-		days, err := strconv.Atoi(daysStr)
-		if err == nil {
+	if daysStr := r.URL.Query().Get("days"); daysStr != "" {
+		if days, err := strconv.Atoi(daysStr); err == nil {
 			query.Days = days
+		}
+	}
+	if fromStr, toStr := r.URL.Query().Get("from"), r.URL.Query().Get("to"); fromStr != "" && toStr != "" {
+		from, errFrom := time.Parse("2006-01-02", fromStr)
+		to, errTo := time.Parse("2006-01-02", toStr)
+		if errFrom == nil && errTo == nil {
+			if from.After(to) {
+				from, to = to, from
+			}
+			query.From = from
+			query.To = to
 		}
 	}
 
@@ -456,6 +462,23 @@ func (h *Handler) handleStats(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleDailyStats(w http.ResponseWriter, r *http.Request) {
+	if fromStr, toStr := r.URL.Query().Get("from"), r.URL.Query().Get("to"); fromStr != "" && toStr != "" {
+		from, errFrom := time.Parse("2006-01-02", fromStr)
+		to, errTo := time.Parse("2006-01-02", toStr)
+		if errFrom == nil && errTo == nil {
+			if from.After(to) {
+				from, to = to, from
+			}
+			stats, err := h.store.GetDailyStatsRange(from, to)
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				return
+			}
+			writeJSON(w, http.StatusOK, stats)
+			return
+		}
+	}
+
 	days := 30
 	if daysStr := r.URL.Query().Get("days"); daysStr != "" {
 		if n, err := strconv.Atoi(daysStr); err == nil && n > 0 {

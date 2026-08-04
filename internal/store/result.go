@@ -325,8 +325,15 @@ func (s *Store) GetDailyStats(days int) ([]model.ProviderDailyStats, error) {
 	}
 	now := time.Now()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	sinceStr := today.AddDate(0, 0, -(days - 1)).Format("2006-01-02 15:04:05")
-	tomorrowStr := today.AddDate(0, 0, 1).Format("2006-01-02 15:04:05")
+	return s.GetDailyStatsRange(today.AddDate(0, 0, -(days - 1)), today)
+}
+
+func (s *Store) GetDailyStatsRange(from, to time.Time) ([]model.ProviderDailyStats, error) {
+	// Format as string for SQLite comparison - Go monotonic clock format
+	// uses "2006-01-02 15:04:05.999999999 -0700 MST m=+..." which SQLite
+	// can't parse, but string comparison works on the prefix.
+	sinceStr := from.Format("2006-01-02 15:04:05")
+	endStr := to.AddDate(0, 0, 1).Format("2006-01-02 15:04:05")
 
 	rows, err := s.db.Query(`
 		SELECT
@@ -346,7 +353,7 @@ func (s *Store) GetDailyStats(days int) ([]model.ProviderDailyStats, error) {
 		WHERE p.enabled = 1 AND pr.enabled = 1
 		GROUP BY pr.id, pr.name, p.id, p.model, day
 		ORDER BY pr.name COLLATE NOCASE, pr.id, p.model COLLATE NOCASE, p.id, day DESC
-	`, sinceStr, tomorrowStr)
+	`, sinceStr, endStr)
 	if err != nil {
 		return nil, fmt.Errorf("get daily stats: %w", err)
 	}
@@ -521,7 +528,11 @@ func (s *Store) GetHourlyStats(hours int) ([]model.ProviderHourlyStats, error) {
 func (s *Store) GetStats(query model.StatsQuery) ([]model.ProviderStats, error) {
 	now := time.Now()
 	var since time.Time
-	if query.Days > 0 {
+	var until time.Time
+	if !query.From.IsZero() {
+		since = query.From
+		until = query.To
+	} else if query.Days > 0 {
 		since = now.AddDate(0, 0, -query.Days)
 	} else if query.Hours > 0 {
 		since = now.Add(-time.Duration(query.Hours) * time.Hour)
@@ -536,6 +547,16 @@ func (s *Store) GetStats(query model.StatsQuery) ([]model.ProviderStats, error) 
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	todayStartStr := todayStart.Format("2006-01-02 15:04:05")
 	tomorrowStartStr := todayStart.AddDate(0, 0, 1).Format("2006-01-02 15:04:05")
+
+	// Calendar range queries bound the aggregation window on both ends;
+	// rolling-hour/day queries only need a lower bound.
+	rangeEndSQL := ""
+	args := []interface{}{sinceStr}
+	if !query.From.IsZero() {
+		rangeEndSQL = " AND created_at < ?"
+		args = append(args, until.AddDate(0, 0, 1).Format("2006-01-02 15:04:05"))
+	}
+	args = append(args, todayStartStr, tomorrowStartStr)
 
 	rows, err := s.db.Query(`
 		SELECT
@@ -577,7 +598,7 @@ func (s *Store) GetStats(query model.StatsQuery) ([]model.ProviderStats, error) 
 				AVG(CASE WHEN status = 'success' AND tps > 0 THEN tps ELSE NULL END) AS avg_tps,
 				AVG(CASE WHEN status = 'success' AND tps_exclude_ttft > 0 THEN tps_exclude_ttft ELSE NULL END) AS avg_tps_exclude_ttft
 			FROM results
-			WHERE created_at >= ?
+			WHERE created_at >= ?` + rangeEndSQL + `
 			GROUP BY probe_id
 		) a ON a.probe_id = p.id
 		LEFT JOIN (
@@ -597,7 +618,7 @@ func (s *Store) GetStats(query model.StatsQuery) ([]model.ProviderStats, error) 
 		)
 		WHERE p.enabled = 1 AND pr.enabled = 1
 		ORDER BY pr.name COLLATE NOCASE, pr.id, p.model COLLATE NOCASE, p.id
-	`, sinceStr, todayStartStr, tomorrowStartStr)
+	`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("get stats: %w", err)
 	}

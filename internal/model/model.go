@@ -70,6 +70,8 @@ type ProbeWithProvider struct {
 type StatsQuery struct {
 	Hours int
 	Days  int
+	From  time.Time
+	To    time.Time
 }
 
 type ModelStats struct {
