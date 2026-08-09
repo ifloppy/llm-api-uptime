@@ -521,3 +521,95 @@ func TestFetchModelListWithBOM(t *testing.T) {
 		t.Error("expected error for BOM-prefixed response")
 	}
 }
+
+// TestProbeOpenAISoftFailQuota verifies that a 200-OK streaming response whose
+// assistant message matches a known failure template (e.g. "monthly token
+// quota exceeded") is recorded as StatusSoftFail instead of StatusSuccess.
+func TestProbeOpenAISoftFailQuota(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeSSEResponse(w, []string{
+			`{"id":"chatcmpl-quota","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":"Your monthly token quota has been exceeded. Please recharge."},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":12,"total_tokens":22}}`,
+		})
+	}))
+	defer server.Close()
+
+	result := probeOpenAI(context.Background(), server.URL, "test-key", "redteam", "gpt-4", 64)
+
+	if result.Status != model.StatusSoftFail {
+		t.Errorf("Status = %q, want soft_fail", result.Status)
+	}
+	if result.StatusCode != 200 {
+		t.Errorf("StatusCode = %d, want 200 (HTTP-layer ok, content-level fail)", result.StatusCode)
+	}
+	if result.ErrorCode == "" {
+		t.Errorf("ErrorCode = empty, want non-empty code from classifier")
+	}
+	if result.ErrorMessage == "" {
+		t.Errorf("ErrorMessage = empty, want matched substring")
+	}
+	if result.RequestID == "" {
+		t.Errorf("RequestID = empty, want header id propagated")
+	}
+	if result.TotalTokens == 0 {
+		t.Errorf("TotalTokens = 0, want usage tokens propagated")
+	}
+}
+
+// TestProbeOpenAISoftFailChinese verifies the classifier catches non-English
+// (Chinese) fake-success templates such as "余额不足".
+func TestProbeOpenAISoftFailChinese(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeSSEResponse(w, []string{
+			`{"id":"chatcmpl-cn","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":"余额不足,请充值后继续使用。"},"finish_reason":"stop"}],"usage":{"prompt_tokens":8,"completion_tokens":9,"total_tokens":17}}`,
+		})
+	}))
+	defer server.Close()
+
+	result := probeOpenAI(context.Background(), server.URL, "test-key", "redteam", "gpt-4", 64)
+
+	if result.Status != model.StatusSoftFail {
+		t.Errorf("Status = %q, want soft_fail", result.Status)
+	}
+	if result.ErrorCode == "" {
+		t.Errorf("ErrorCode = empty, want non-empty code from classifier")
+	}
+}
+
+// TestProbeAnthropicSoftFail verifies the anthropic probe also routes through
+// the classifier when the response text contains a known failure template.
+func TestProbeAnthropicSoftFail(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"id":"msg_softfail","type":"message","role":"assistant","content":[{"type":"text","text":"Insufficient balance. Please top up your account."}],"usage":{"input_tokens":10,"output_tokens":8},"stop_reason":"end_turn"}`)
+	}))
+	defer server.Close()
+
+	result := probeAnthropic(context.Background(), server.URL, "test-key", "redteam", "claude-3-haiku-20240307", 64)
+
+	if result.Status != model.StatusSoftFail {
+		t.Errorf("Status = %q, want soft_fail", result.Status)
+	}
+	if result.StatusCode != 200 {
+		t.Errorf("StatusCode = %d, want 200", result.StatusCode)
+	}
+	if result.ErrorCode == "" {
+		t.Errorf("ErrorCode = empty, want non-empty code from classifier")
+	}
+}
+
+// TestProbeOpenAINormalReplyNotFlagged verifies a normal reply that mentions
+// words like "quota" in explanatory context is NOT misclassified.
+func TestProbeOpenAINormalReplyNotFlagged(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeSSEResponse(w, []string{
+			`{"id":"chatcmpl-ok","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":"Your plan includes a quota of 100k tokens per month."},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":12,"total_tokens":22}}`,
+		})
+	}))
+	defer server.Close()
+
+	result := probeOpenAI(context.Background(), server.URL, "test-key", "test", "gpt-4", 64)
+
+	if result.Status != model.StatusSuccess {
+		t.Errorf("Status = %q, want success (false positive)", result.Status)
+	}
+}

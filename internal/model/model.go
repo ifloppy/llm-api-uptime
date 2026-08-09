@@ -37,6 +37,7 @@ const (
 	StatusTimeout      ProbeStatus = "timeout"
 	StatusEmptyResp    ProbeStatus = "empty_response"
 	StatusEmptyContent ProbeStatus = "empty_content"
+	StatusSoftFail     ProbeStatus = "soft_fail"
 )
 
 type Result struct {

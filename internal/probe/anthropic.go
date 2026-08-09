@@ -2,6 +2,7 @@ package probe
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -131,6 +132,27 @@ func probeAnthropic(ctx context.Context, baseURL, apiKey, providerName, modelID 
 			"content_len", len(content),
 			"completion_tokens", completionTokens,
 		)
+	}
+
+	if softStatus, code, matched := classifyContent(content); softStatus != "" {
+		slog.Warn("probe soft-fail: response body looks like a known failure template",
+			"provider", providerName,
+			"model", modelID,
+			"code", code,
+			"matched", matched,
+		)
+		return &model.Result{
+			Status:           softStatus,
+			StatusCode:       200,
+			LatencyMs:        latency,
+			TTFTMs:           latency,
+			PromptTokens:     promptTokens,
+			CompletionTokens: completionTokens,
+			TotalTokens:      totalTokens,
+			ErrorCode:        code,
+			ErrorMessage:     fmt.Sprintf("soft-fail content matched %q: %s", code, matched),
+			RequestID:        requestID,
+		}
 	}
 
 	return &model.Result{
