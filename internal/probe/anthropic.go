@@ -14,7 +14,7 @@ import (
 	"llm-api-uptime/internal/model"
 )
 
-func probeAnthropic(ctx context.Context, baseURL, apiKey, providerName, modelID string, maxTokens int) *model.Result {
+func probeAnthropic(ctx context.Context, baseURL, apiKey, providerName, modelID string, maxTokens int, retries ...int) *model.Result {
 	start := time.Now()
 
 	if maxTokens <= 0 {
@@ -23,7 +23,7 @@ func probeAnthropic(ctx context.Context, baseURL, apiKey, providerName, modelID 
 
 	var requestIDFromHeader string
 
-	client := anthropic.NewClient(
+	clientOptions := []option.RequestOption{
 		option.WithBaseURL(strings.TrimRight(baseURL, "/") + "/v1"),
 		option.WithAPIKey(apiKey),
 		option.WithMiddleware(func(req *http.Request, nxt option.MiddlewareNext) (*http.Response, error) {
@@ -37,7 +37,11 @@ func probeAnthropic(ctx context.Context, baseURL, apiKey, providerName, modelID 
 			}
 			return resp, err
 		}),
-	)
+	}
+	if len(retries) > 0 {
+		clientOptions = append(clientOptions, option.WithMaxRetries(retries[0]))
+	}
+	client := anthropic.NewClient(clientOptions...)
 
 	message, err := client.Messages.New(ctx, anthropic.MessageNewParams{
 		Model:     modelID,

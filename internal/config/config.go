@@ -10,12 +10,13 @@ import (
 type Config struct {
 	ProbeInterval       time.Duration
 	ProbeTimeout        time.Duration
+	ProbeRetries        int
 	ProbeConcurrency    int
 	DBPath              string
 	DataRetention       time.Duration
 	WebEnabled          bool
 	WebPort             int
-	WebPublic            bool
+	WebPublic           bool
 	WebPassword         string
 	WebGuestEnabled     bool
 	UpdateCheckEnabled  bool
@@ -31,6 +32,7 @@ func Load() *Config {
 	cfg := &Config{
 		ProbeInterval:       5 * time.Minute,
 		ProbeTimeout:        30 * time.Second,
+		ProbeRetries:        2,
 		ProbeConcurrency:    3,
 		DBPath:              "./data/uptime.db",
 		DataRetention:       720 * time.Hour,
@@ -55,6 +57,12 @@ func Load() *Config {
 	if v := os.Getenv("PROBE_TIMEOUT"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			cfg.ProbeTimeout = d
+		}
+	}
+
+	if v := os.Getenv("PROBE_RETRIES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			cfg.ProbeRetries = n
 		}
 	}
 

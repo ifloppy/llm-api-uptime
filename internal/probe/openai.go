@@ -14,7 +14,7 @@ import (
 	"llm-api-uptime/internal/model"
 )
 
-func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID string, maxTokens int) *model.Result {
+func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID string, maxTokens int, retries ...int) *model.Result {
 	start := time.Now()
 
 	if maxTokens <= 0 {
@@ -23,7 +23,7 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 
 	var requestIDFromHeader string
 
-	client := openai.NewClient(
+	clientOptions := []option.RequestOption{
 		option.WithBaseURL(strings.TrimRight(baseURL, "/") + "/v1"),
 		option.WithAPIKey(apiKey),
 		option.WithMiddleware(func(req *http.Request, nxt option.MiddlewareNext) (*http.Response, error) {
@@ -45,7 +45,11 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 			}
 			return resp, err
 		}),
-	)
+	}
+	if len(retries) > 0 {
+		clientOptions = append(clientOptions, option.WithMaxRetries(retries[0]))
+	}
+	client := openai.NewClient(clientOptions...)
 
 	stream := client.Chat.Completions.NewStreaming(ctx, openai.ChatCompletionNewParams{
 		Model: modelID,
@@ -90,7 +94,7 @@ func probeOpenAI(ctx context.Context, baseURL, apiKey, providerName, modelID str
 
 	if err := stream.Err(); err != nil {
 		errMsg := err.Error()
-		
+
 		slog.Debug("probe stream error",
 			"provider", providerName,
 			"model", modelID,

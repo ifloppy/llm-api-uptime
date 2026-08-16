@@ -17,6 +17,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.ProbeTimeout != 30*time.Second {
 		t.Errorf("ProbeTimeout = %v, want 30s", cfg.ProbeTimeout)
 	}
+	if cfg.ProbeRetries != 2 {
+		t.Errorf("ProbeRetries = %d, want 2", cfg.ProbeRetries)
+	}
 	if cfg.ProbeConcurrency != 3 {
 		t.Errorf("ProbeConcurrency = %d, want 3", cfg.ProbeConcurrency)
 	}
@@ -57,6 +60,7 @@ func TestLoadFromEnv(t *testing.T) {
 
 	os.Setenv("PROBE_INTERVAL", "10m")
 	os.Setenv("PROBE_TIMEOUT", "60s")
+	os.Setenv("PROBE_RETRIES", "4")
 	os.Setenv("PROBE_CONCURRENCY", "5")
 	os.Setenv("DB_PATH", "/tmp/test.db")
 	os.Setenv("DATA_RETENTION", "168h")
@@ -76,6 +80,9 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if cfg.ProbeTimeout != 60*time.Second {
 		t.Errorf("ProbeTimeout = %v, want 60s", cfg.ProbeTimeout)
+	}
+	if cfg.ProbeRetries != 4 {
+		t.Errorf("ProbeRetries = %d, want 4", cfg.ProbeRetries)
 	}
 	if cfg.ProbeConcurrency != 5 {
 		t.Errorf("ProbeConcurrency = %d, want 5", cfg.ProbeConcurrency)
@@ -117,6 +124,7 @@ func TestLoadInvalidEnv(t *testing.T) {
 
 	os.Setenv("PROBE_INTERVAL", "invalid")
 	os.Setenv("PROBE_TIMEOUT", "invalid")
+	os.Setenv("PROBE_RETRIES", "-1")
 	os.Setenv("PROBE_CONCURRENCY", "abc")
 	os.Setenv("WEB_PORT", "-1")
 	os.Setenv("WEB_ENABLED", "yes")
@@ -131,6 +139,9 @@ func TestLoadInvalidEnv(t *testing.T) {
 	}
 	if cfg.ProbeTimeout != 30*time.Second {
 		t.Errorf("ProbeTimeout should default on invalid value, got %v", cfg.ProbeTimeout)
+	}
+	if cfg.ProbeRetries != 2 {
+		t.Errorf("ProbeRetries should default on invalid value, got %d", cfg.ProbeRetries)
 	}
 	if cfg.ProbeConcurrency != 3 {
 		t.Errorf("ProbeConcurrency should default on invalid value, got %d", cfg.ProbeConcurrency)

@@ -22,6 +22,7 @@ LLM API 提供商可用性监控工具。支持 OpenAI Compatible 和 Anthropic 
 ## ✨ 特色功能
 
 - **多提供商支持**：OpenAI Compatible + Anthropic
+- **可配置探测**：间隔、超时、并发数和失败重试次数
 - **双界面并行**：TUI 和 Web 同时运行，Web 可开关
 - **每提供商 MaxTokens**：独立配置每次探测的最大 token 数
 - **推理模型支持**：兼容 DeepSeek 等推理模型（检查 `reasoning_content`）
@@ -153,6 +154,7 @@ cp .env.example .env
 |------|--------|------|
 | `PROBE_INTERVAL` | `5m` | 探测间隔（如 `5m`、`1h`） |
 | `PROBE_TIMEOUT` | `30s` | 单次请求超时 |
+| `PROBE_RETRIES` | `2` | 单次请求失败后的最大重试次数；`0` 表示不重试 |
 | `PROBE_CONCURRENCY` | `3` | 每服务商最大并发探测数 |
 | `DB_PATH` | `./data/uptime.db` | 数据库路径 |
 | `DATA_RETENTION` | `720h` | 数据保留时长（30 天） |
@@ -166,6 +168,8 @@ cp .env.example .env
 | `UPDATE_CHECK_INTERVAL` | `24h` | 自动检查更新的间隔 |
 | `UPDATE_AUTO_STAGE` | `true` | 下载并暂存受支持的更新，重启后启用 |
 | `UPDATE_HTTP_PROXY` | _(空)_ | 仅作用于 GitHub Release 请求的可选 HTTP 代理；留空时继承 Shell 中的 `HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY`。 |
+
+`PROBE_RETRIES` 表示首次请求之外的重试次数，因此默认值 `2` 最多会发起 3 次请求。只有网络错误、408、409、429 和 5xx 等可重试请求会自动重试；鉴权/参数类 4xx、空内容和软失败不会重试。修改 `.env` 后重启程序即可生效。
 
 ## 环境变量与代理
 

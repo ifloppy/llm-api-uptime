@@ -35,6 +35,7 @@ func (s *Settings) View() string {
 	settings := fmt.Sprintf(
 		"Probe Interval:    %s\n"+
 			"Probe Timeout:     %s\n"+
+			"Probe Retries:     %d\n"+
 			"Probe Concurrency: %d\n"+
 			"DB Path:           %s\n"+
 			"Data Retention:    %s\n"+
@@ -45,6 +46,7 @@ func (s *Settings) View() string {
 			"Log Level:         %s",
 		s.config.ProbeInterval,
 		s.config.ProbeTimeout,
+		s.config.ProbeRetries,
 		s.config.ProbeConcurrency,
 		s.config.DBPath,
 		s.config.DataRetention,

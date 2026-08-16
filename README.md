@@ -9,8 +9,8 @@ A lightweight tool for monitoring the uptime and stability of LLM API providers 
 ## Features
 
 - **Multi-provider support**: Monitor OpenAI Compatible and Anthropic APIs
+- **Configurable probes**: Set interval, timeout, concurrency, and retry count
 - **Dual interface**: Interactive TUI (Terminal UI) and Web UI running simultaneously
-- **Configurable probes**: Set interval, timeout, and concurrency
 - **Per-provider MaxTokens**: Configure different max tokens for each provider
 - **Content validation**: Detect empty responses (including reasoning models like DeepSeek)
 - **TPS tracking**: Track tokens per second for performance monitoring
@@ -138,6 +138,7 @@ cp .env.example .env
 |----------|---------|-------------|
 | `PROBE_INTERVAL` | `5m` | Probe interval (e.g., `5m`, `1h`) |
 | `PROBE_TIMEOUT` | `30s` | Single request timeout |
+| `PROBE_RETRIES` | `2` | Maximum retries after a failed request; `0` disables retries |
 | `PROBE_CONCURRENCY` | `3` | Max concurrent probes per provider |
 | `DB_PATH` | `./data/uptime.db` | SQLite database path |
 | `DATA_RETENTION` | `720h` | Data retention period (30 days) |
@@ -151,6 +152,8 @@ cp .env.example .env
 | `UPDATE_CHECK_INTERVAL` | `24h` | Interval between automatic update checks |
 | `UPDATE_AUTO_STAGE` | `true` | Download and stage a supported update for activation on restart |
 | `UPDATE_HTTP_PROXY` | _(empty)_ | Optional HTTP proxy for GitHub release requests only. Inherits the shell environment (`HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY`) when empty. |
+
+`PROBE_RETRIES` counts retries after the initial request, so the default `2` allows up to 3 attempts. Automatic retries apply to retryable network errors, 408, 409, 429, and 5xx responses; authentication/validation 4xx responses, empty content, and soft failures are not retried. Restart the process after changing `.env`.
 
 ## Environment Variables and Proxies
 

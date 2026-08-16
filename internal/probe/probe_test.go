@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -68,6 +69,30 @@ func TestProbeOpenAIError(t *testing.T) {
 
 	if result.Status != model.StatusError {
 		t.Errorf("Status = %q, want error", result.Status)
+	}
+}
+
+func TestProbeOpenAIRetryCount(t *testing.T) {
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if attempts.Add(1) <= 2 {
+			w.Header().Set("Retry-After", "0.001")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		writeSSEResponse(w, []string{
+			`{"id":"chatcmpl-retry","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"Recovered"},"finish_reason":"stop"}]}`,
+		})
+	}))
+	defer server.Close()
+
+	result := probeOpenAI(context.Background(), server.URL, "test-key", "test", "gpt-4", 10, 2)
+
+	if result.Status != model.StatusSuccess {
+		t.Errorf("Status = %q, want success", result.Status)
+	}
+	if got := attempts.Load(); got != 3 {
+		t.Errorf("request attempts = %d, want 3", got)
 	}
 }
 
@@ -203,7 +228,7 @@ func TestProbeAnthropicSuccess(t *testing.T) {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"id": "msg-123",
+			"id":   "msg-123",
 			"type": "message",
 			"role": "assistant",
 			"content": []map[string]interface{}{
@@ -250,6 +275,42 @@ func TestProbeAnthropicError(t *testing.T) {
 
 	if result.Status != model.StatusError {
 		t.Errorf("Status = %q, want error", result.Status)
+	}
+}
+
+func TestProbeAnthropicRetryCount(t *testing.T) {
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if attempts.Add(1) == 1 {
+			w.Header().Set("Retry-After", "0.001")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"id":   "msg-retry",
+			"type": "message",
+			"role": "assistant",
+			"content": []map[string]interface{}{
+				{"text": "Recovered", "type": "text"},
+			},
+			"model": "claude-3",
+			"usage": map[string]interface{}{
+				"input_tokens":  10,
+				"output_tokens": 5,
+			},
+		})
+	}))
+	defer server.Close()
+
+	result := probeAnthropic(context.Background(), server.URL, "test-key", "test", "claude-3", 10, 1)
+
+	if result.Status != model.StatusSuccess {
+		t.Errorf("Status = %q, want success", result.Status)
+	}
+	if got := attempts.Load(); got != 2 {
+		t.Errorf("request attempts = %d, want 2", got)
 	}
 }
 
